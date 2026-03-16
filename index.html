@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>free-converter</title>
+    <meta
+      name="description"
+      content="Serverless-friendly media converter with browser-side video, image, and PDF workflows."
+    />
+    <meta name="theme-color" content="#0f77ff" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="site-backdrop" aria-hidden="true">
+      <div class="ambient-orb ambient-orb-a"></div>
+      <div class="ambient-orb ambient-orb-b"></div>
+      <div class="ambient-orb ambient-orb-c"></div>
+    </div>
+
+    <div class="page-shell">
+      <header class="masthead">
+        <div class="topbar">
+          <a class="brand" href="#converter-title" aria-label="free-converter home">
+            <span class="brand-mark">fc</span>
+            <span class="brand-copy">
+              <strong>free-converter</strong>
+              <small>Local-first media workstation</small>
+            </span>
+          </a>
+
+          <div class="topbar-badges" aria-label="Platform highlights">
+            <span>Static-host ready</span>
+            <span>Zero-upload processing</span>
+            <span>Recorder + converters</span>
+          </div>
+        </div>
+
+        <section class="hero">
+          <div class="hero-main">
+            <p class="eyebrow">Premium browser media workstation</p>
+            <h1>Convert, capture, and package files with a local-first workflow that feels launch ready.</h1>
+            <p class="hero-copy">
+              free-converter combines screen recording, browser-side video
+              transcoding, PDF tooling, image export workflows, and local
+              workspace controls in one polished interface built for static and
+              serverless hosting.
+            </p>
+
+            <div class="hero-actions">
+              <a class="hero-primary-link" href="#converter-title">Open converter</a>
+              <a class="hero-secondary-link" href="#recorder-title">Open recorder</a>
+            </div>
+
+            <div class="hero-chips" aria-label="Product highlights">
+              <span>8 local workflows</span>
+              <span>Protected workspace history</span>
+              <span>Large-file safeguards</span>
+              <span>Screen capture controls</span>
+              <span>No backend required</span>
+            </div>
+          </div>
+
+          <aside class="hero-showcase" aria-label="Product overview">
+            <div class="showcase-panel">
+              <div>
+                <p class="panel-kicker">Studio overview</p>
+                <h2 class="showcase-title">Everything runs in the browser, but the product reads like a serious tool.</h2>
+              </div>
+
+              <div class="showcase-metrics">
+                <article class="showcase-metric">
+                  <span>Workflows</span>
+                  <strong>8</strong>
+                  <small>Recorder, media, image, and PDF tasks in one workspace.</small>
+                </article>
+
+                <article class="showcase-metric">
+                  <span>Uploads</span>
+                  <strong>0</strong>
+                  <small>Files stay on the device during conversion and capture.</small>
+                </article>
+
+                <article class="showcase-metric">
+                  <span>Hosting</span>
+                  <strong>Static</strong>
+                  <small>Ready for serverless and plain static-site platforms.</small>
+                </article>
+              </div>
+
+              <div class="showcase-list">
+                <div class="showcase-list-row">
+                  <span>Screen capture</span>
+                  <strong>WebM or MP4 export</strong>
+                </div>
+                <div class="showcase-list-row">
+                  <span>Video pipeline</span>
+                  <strong>Transcode plus poster extraction</strong>
+                </div>
+                <div class="showcase-list-row">
+                  <span>Image workflows</span>
+                  <strong>JPG, PNG, WebP, PDF</strong>
+                </div>
+                <div class="showcase-list-row">
+                  <span>Workspace controls</span>
+                  <strong>PIN lock, history, analytics</strong>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </section>
+      </header>
+
+      <main class="layout">
+        <section class="panel converter-panel" aria-labelledby="converter-title">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Converter</p>
+              <h2 id="converter-title">Pick a conversion workflow</h2>
+            </div>
+            <span class="format-badge" id="formatBadge">WebM to MP4</span>
+          </div>
+
+          <label class="field">
+            <span>Conversion preset</span>
+            <select id="presetSelect" aria-label="Select a conversion preset"></select>
+          </label>
+
+          <button class="dropzone" id="dropZone" type="button">
+            <input id="fileInput" type="file" hidden />
+            <span class="dropzone-label">Drop files here or pick from your device</span>
+            <span class="dropzone-hint" id="dropZoneHint">
+              Single WebM file for MP4 conversion
+            </span>
+          </button>
+
+          <div class="selection-bar">
+            <div>
+              <p class="panel-kicker">Selected files</p>
+              <p class="helper-text" id="helperText">
+                Turn one WebM clip into an MP4 file with browser-side transcoding.
+              </p>
+            </div>
+            <div class="selection-actions">
+              <span class="count-badge" id="countBadge">0 files</span>
+              <button class="secondary-button" id="pickFilesButton" type="button">
+                Pick files
+              </button>
+              <button class="ghost-button" id="clearFilesButton" type="button">
+                Clear
+              </button>
+            </div>
+          </div>
+
+          <ul class="file-list" id="fileList" aria-live="polite">
+            <li class="file-empty">No files selected yet.</li>
+          </ul>
+
+          <section class="options-panel" aria-labelledby="options-title">
+            <div class="panel-inline-head">
+              <div>
+                <p class="panel-kicker">Smart options</p>
+                <h3 id="options-title">Adaptive controls</h3>
+              </div>
+            </div>
+
+            <div class="options-group" id="videoOptions">
+              <label class="field">
+                <span>Video profile</span>
+                <select id="videoProfileSelect">
+                  <option value="archive">Archive quality</option>
+                  <option value="balanced" selected>Balanced</option>
+                  <option value="compressed">Compressed</option>
+                </select>
+              </label>
+
+              <div class="options-grid">
+                <label class="field">
+                  <span>Max width</span>
+                  <select id="videoWidthSelect">
+                    <option value="original">Original</option>
+                    <option value="1920">1920 px</option>
+                    <option value="1280" selected>1280 px</option>
+                    <option value="854">854 px</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span>Max FPS</span>
+                  <select id="videoFpsSelect">
+                    <option value="original">Original</option>
+                    <option value="60">60</option>
+                    <option value="30" selected>30</option>
+                    <option value="24">24</option>
+                  </select>
+                </label>
+              </div>
+
+              <label class="checkbox-field">
+                <input id="stripAudioCheckbox" type="checkbox" />
+                <span>Remove audio track to reduce output size</span>
+              </label>
+            </div>
+
+            <div class="options-group" id="imageOptions" hidden>
+              <div class="options-grid">
+                <label class="field">
+                  <span>JPG quality</span>
+                  <input id="jpgQualityRange" type="range" min="55" max="95" value="92" />
+                  <small id="jpgQualityLabel">92%</small>
+                </label>
+
+                <label class="field">
+                  <span>WebP quality</span>
+                  <input id="webpQualityRange" type="range" min="55" max="95" value="90" />
+                  <small id="webpQualityLabel">90%</small>
+                </label>
+              </div>
+            </div>
+
+            <div class="options-group" id="pdfOptions" hidden>
+              <p class="helper-text">
+                PDF workflows preserve the input order of the selected files.
+              </p>
+            </div>
+
+            <div class="warning-banner" id="videoWarning" hidden></div>
+            <p class="helper-text" id="optionsHint">
+              Video presets expose adaptive controls to help with larger files.
+            </p>
+          </section>
+
+          <div class="status-card" aria-live="polite">
+            <div class="status-row">
+              <p class="status-label">Status</p>
+              <p class="status-text" id="statusText">Select files to begin.</p>
+            </div>
+            <div class="progress-track" aria-hidden="true">
+              <div class="progress-fill" id="progressFill"></div>
+            </div>
+          </div>
+
+          <div class="action-row">
+            <button class="primary-button" id="convertButton" type="button">
+              Convert to MP4
+            </button>
+            <button class="ghost-button" id="cancelButton" type="button" hidden>
+              Cancel job
+            </button>
+          </div>
+        </section>
+
+        <aside class="panel operations-panel">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Operations</p>
+              <h2>Diagnostics, lock, and analytics</h2>
+            </div>
+          </div>
+
+          <div class="detail-stack">
+            <article class="detail-card">
+              <h3>Runtime diagnostics</h3>
+              <div class="diagnostics-grid" id="diagnosticsGrid"></div>
+              <p class="helper-text" id="deviceHint"></p>
+            </article>
+
+            <article class="detail-card">
+              <h3>Workspace lock</h3>
+              <label class="field">
+                <span>Display name</span>
+                <input id="profileNameInput" type="text" maxlength="24" placeholder="Guest" />
+              </label>
+              <div class="auth-grid">
+                <label class="field">
+                  <span>Set or update PIN</span>
+                  <input id="pinInput" type="password" inputmode="numeric" maxlength="12" placeholder="4 to 12 digits" />
+                </label>
+
+                <label class="field">
+                  <span>Unlock with PIN</span>
+                  <input id="unlockPinInput" type="password" inputmode="numeric" maxlength="12" placeholder="Enter PIN" />
+                </label>
+              </div>
+              <p class="helper-text" id="authStatus">
+                No PIN set yet. Add one if you want to lock local history and controls.
+              </p>
+              <div class="button-row">
+                <button class="secondary-button" id="saveProfileButton" type="button">
+                  Save name
+                </button>
+                <button class="secondary-button" id="setPinButton" type="button">
+                  Set PIN
+                </button>
+                <button class="secondary-button" id="unlockButton" type="button">
+                  Unlock
+                </button>
+                <button class="secondary-button" id="lockButton" type="button">
+                  Lock
+                </button>
+                <button class="ghost-button" id="removePinButton" type="button">
+                  Remove PIN
+                </button>
+              </div>
+            </article>
+
+            <article class="detail-card">
+              <h3>Privacy-friendly analytics</h3>
+              <div class="stats-grid">
+                <div class="stat-card">
+                  <span class="stat-label">Successful jobs</span>
+                  <strong id="statSuccess">0</strong>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-label">Failed jobs</span>
+                  <strong id="statFailed">0</strong>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-label">Data processed</span>
+                  <strong id="statBytes">0 B</strong>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-label">Last activity</span>
+                  <strong id="statLastRun">Never</strong>
+                </div>
+              </div>
+              <p class="helper-text" id="favoritePreset">
+                Local-only analytics stay in this browser. No external telemetry is sent.
+              </p>
+            </article>
+          </div>
+        </aside>
+
+        <section class="panel recorder-panel" aria-labelledby="recorder-title">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Recorder</p>
+              <h2 id="recorder-title">Screen recording with quality and format control</h2>
+            </div>
+          </div>
+
+          <div class="recorder-grid">
+            <div class="detail-card recorder-controls">
+              <h3>Capture setup</h3>
+              <div class="options-grid">
+                <label class="field">
+                  <span>Output format</span>
+                  <select id="recordFormatSelect"></select>
+                </label>
+
+                <label class="field">
+                  <span>Quality profile</span>
+                  <select id="recordQualitySelect">
+                    <option value="crisp">Crisp</option>
+                    <option value="balanced" selected>Balanced</option>
+                    <option value="compact">Compact</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span>Max width</span>
+                  <select id="recordWidthSelect">
+                    <option value="original">Original</option>
+                    <option value="2560">2560 px</option>
+                    <option value="1920" selected>1920 px</option>
+                    <option value="1280">1280 px</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span>Frame rate</span>
+                  <select id="recordFpsSelect">
+                    <option value="60">60</option>
+                    <option value="30" selected>30</option>
+                    <option value="24">24</option>
+                    <option value="15">15</option>
+                  </select>
+                </label>
+              </div>
+
+              <label class="checkbox-field">
+                <input id="recordAudioCheckbox" type="checkbox" checked />
+                <span>Include tab or system audio when the browser allows it</span>
+              </label>
+
+              <div class="warning-banner" id="recorderWarning" hidden></div>
+              <p class="helper-text" id="recorderHint">
+                MP4 recording may use a short in-browser conversion step after capture finishes.
+              </p>
+
+              <div class="button-row">
+                <button class="primary-button" id="startRecordingButton" type="button">
+                  Start recording
+                </button>
+                <button class="ghost-button" id="stopRecordingButton" type="button" disabled>
+                  Stop recording
+                </button>
+              </div>
+            </div>
+
+            <div class="detail-card recorder-status-card">
+              <h3>Recorder status</h3>
+              <div class="recorder-meta">
+                <div class="stat-card">
+                  <span class="stat-label">Status</span>
+                  <strong id="recorderStatusText">Ready to capture</strong>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-label">Elapsed</span>
+                  <strong id="recorderTimerText">00:00</strong>
+                </div>
+              </div>
+              <p class="helper-text" id="recorderOutputMeta">
+                Your recording will stay local and appear in the downloads area when it is ready.
+              </p>
+              <video
+                id="recorderPreview"
+                class="recorder-preview"
+                controls
+                playsinline
+                hidden
+              ></video>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel activity-panel" aria-labelledby="history-title">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Recent activity</p>
+              <h2 id="history-title">Conversion history</h2>
+            </div>
+            <button class="ghost-button" id="clearHistoryButton" type="button">
+              Clear history
+            </button>
+          </div>
+          <ul class="history-list" id="historyList" aria-live="polite">
+            <li class="history-empty">No conversions have been recorded yet.</li>
+          </ul>
+        </section>
+
+        <section class="panel downloads-panel" aria-labelledby="downloads-title">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Outputs</p>
+              <h2 id="downloads-title">Download converted files</h2>
+            </div>
+          </div>
+          <div class="downloads-grid" id="downloads"></div>
+          <p class="downloads-empty" id="downloadsEmpty">
+            Converted files will appear here.
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <script src="./vendor/pdf-lib.min.js"></script>
+    <script src="./vendor/jszip.min.js"></script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
