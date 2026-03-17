@@ -1,8 +1,13 @@
 import { FFmpeg } from "./vendor/ffmpeg/index.js";
 import { fetchFile } from "./vendor/ffmpeg-util/index.js";
 
-const { PDFDocument } = window.PDFLib;
+const { PDFDocument, ParseSpeeds } = window.PDFLib;
 const JSZip = window.JSZip;
+const PDF_FAST_PARSE_SPEED = ParseSpeeds?.Fastest ?? Number.POSITIVE_INFINITY;
+const PDF_FAST_SAVE_OPTIONS = {
+  useObjectStreams: false,
+  objectsPerTick: 2048,
+};
 
 const STORAGE_KEYS = {
   history: "free-converter-history-v1",
@@ -17,99 +22,106 @@ const SPECIAL_PRESET_LABELS = {
 
 const presets = {
   webmToMp4: {
+    group: "Video",
     label: "WebM to MP4",
-    description:
-      "Transcode a WebM clip to MP4 with adaptive settings for larger files.",
+    description: "Turn one WebM video into an MP4 file.",
     accept: ".webm,video/webm",
     allowedTypes: ["video/webm"],
     allowedExtensions: ["webm"],
     multiple: false,
-    actionLabel: "Convert to MP4",
-    dropHint: "Single WebM clip for MP4 conversion",
+    minimumFiles: 1,
+    smartRank: 100,
+    actionLabel: "Create MP4",
+    dropLabel: "Drop a WebM clip or pick one from your device",
+    dropHint: "Choose one WebM video",
     optionMode: "video",
     usesFfmpeg: true,
-    optionsHint:
-      "Adaptive controls help larger clips finish more reliably inside the browser.",
-  },
-  videoPosterPng: {
-    label: "Video to Poster PNG",
-    description:
-      "Capture a representative frame from a video file and save it as PNG.",
-    accept: "video/webm,video/mp4,video/quicktime,video/x-m4v",
-    allowedTypes: ["video/webm", "video/mp4", "video/quicktime", "video/x-m4v"],
-    allowedExtensions: ["webm", "mp4", "mov", "m4v"],
-    multiple: false,
-    actionLabel: "Extract Poster",
-    dropHint: "Single MP4, MOV, or WebM file",
-    optionMode: "video",
-    usesFfmpeg: false,
-    optionsHint:
-      "Poster extraction uses the browser video decoder and honors the selected max width.",
+    optionsHint: "Not sure? Leave the recommended settings as they are.",
   },
   imagesToPdf: {
+    group: "PDF",
     label: "Images to PDF",
-    description: "Combine JPG, PNG, or WebP images into a single PDF.",
+    description: "Turn one or more images into one PDF file.",
     accept: "image/jpeg,image/png,image/webp",
     allowedTypes: ["image/jpeg", "image/png", "image/webp"],
     allowedExtensions: ["jpg", "jpeg", "png", "webp"],
     multiple: true,
-    actionLabel: "Build PDF",
-    dropHint: "Select one or more JPG, PNG, or WebP files",
+    minimumFiles: 1,
+    smartRank: 70,
+    actionLabel: "Create PDF",
+    dropLabel: "Drop images or pick them from your device",
+    dropHint: "Choose one or more JPG, PNG, or WebP images",
     optionMode: "pdf",
     usesFfmpeg: false,
-    optionsHint: "Images are added to the PDF in the same order you select them.",
+    optionsHint: "Images stay in the same order as the file list above.",
   },
   mergePdf: {
+    group: "PDF",
     label: "Merge PDFs",
-    description: "Combine multiple PDF files into a single merged document.",
+    description: "Join multiple PDF files into one PDF.",
     accept: ".pdf,application/pdf",
     allowedTypes: ["application/pdf"],
     allowedExtensions: ["pdf"],
     multiple: true,
-    actionLabel: "Merge PDFs",
-    dropHint: "Select two or more PDF files",
+    minimumFiles: 2,
+    smartRank: 100,
+    actionLabel: "Combine PDFs",
+    dropLabel: "Drop PDF files or pick them from your device",
+    dropHint: "Choose two or more PDF files",
     optionMode: "pdf",
     usesFfmpeg: false,
-    optionsHint: "Merged PDFs keep the same page order as the selected files.",
+    optionsHint: "The first file stays first, the second stays second, and so on.",
   },
   imageToJpg: {
+    group: "Image",
     label: "PNG / WebP to JPG",
-    description: "Flatten transparent pixels onto white and export JPG files.",
+    description: "Turn PNG or WebP images into JPG files.",
     accept: "image/png,image/webp",
     allowedTypes: ["image/png", "image/webp"],
     allowedExtensions: ["png", "webp"],
     multiple: true,
-    actionLabel: "Convert to JPG",
-    dropHint: "Select one or more PNG or WebP files",
+    minimumFiles: 1,
+    smartRank: 72,
+    actionLabel: "Create JPG",
+    dropLabel: "Drop PNG or WebP images or pick them from your device",
+    dropHint: "Choose one or more PNG or WebP images",
     optionMode: "image",
     usesFfmpeg: false,
-    optionsHint: "The JPG quality slider controls the export compression level.",
+    optionsHint: "Higher quality looks better but can make bigger files.",
   },
   imageToPng: {
+    group: "Image",
     label: "JPG / WebP to PNG",
-    description: "Convert common image formats into PNG output.",
+    description: "Turn JPG or WebP images into PNG files.",
     accept: "image/jpeg,image/png,image/webp",
     allowedTypes: ["image/jpeg", "image/png", "image/webp"],
     allowedExtensions: ["jpg", "jpeg", "png", "webp"],
     multiple: true,
-    actionLabel: "Convert to PNG",
-    dropHint: "Select one or more JPG, PNG, or WebP files",
+    minimumFiles: 1,
+    smartRank: 62,
+    actionLabel: "Create PNG",
+    dropLabel: "Drop JPG, PNG, or WebP images or pick them from your device",
+    dropHint: "Choose one or more JPG, PNG, or WebP images",
     optionMode: "image",
     usesFfmpeg: false,
-    optionsHint: "PNG exports preserve transparency when the source includes it.",
+    optionsHint: "PNG keeps transparency when the original image has it.",
   },
   imageToWebp: {
+    group: "Image",
     label: "JPG / PNG to WebP",
-    description: "Create compact WebP images directly in the browser.",
+    description: "Turn JPG or PNG images into WebP files.",
     accept: "image/jpeg,image/png",
     allowedTypes: ["image/jpeg", "image/png"],
     allowedExtensions: ["jpg", "jpeg", "png"],
     multiple: true,
-    actionLabel: "Convert to WebP",
-    dropHint: "Select one or more JPG or PNG files",
+    minimumFiles: 1,
+    smartRank: 78,
+    actionLabel: "Create WebP",
+    dropLabel: "Drop JPG or PNG images or pick them from your device",
+    dropHint: "Choose one or more JPG or PNG images",
     optionMode: "image",
     usesFfmpeg: false,
-    optionsHint: "The WebP quality slider trades file size against visual fidelity.",
+    optionsHint: "WebP is useful when you want smaller image files.",
   },
 };
 
@@ -120,8 +132,10 @@ const state = {
   cancelRequested: false,
   ffmpeg: null,
   ffmpegPromise: null,
+  ffmpegReady: false,
   downloadUrls: [],
   videoInfo: null,
+  pendingFiles: [],
   currentJob: null,
   history: loadStored(STORAGE_KEYS.history, []),
   analytics: loadStored(STORAGE_KEYS.analytics, createDefaultAnalytics()),
@@ -147,12 +161,19 @@ const state = {
 
 const elements = {
   presetSelect: document.querySelector("#presetSelect"),
+  workflowGrid: document.querySelector("#workflowGrid"),
   fileInput: document.querySelector("#fileInput"),
   pickFilesButton: document.querySelector("#pickFilesButton"),
   clearFilesButton: document.querySelector("#clearFilesButton"),
   dropZone: document.querySelector("#dropZone"),
+  dropZoneLabel: document.querySelector("#dropZoneLabel"),
   dropZoneHint: document.querySelector("#dropZoneHint"),
+  dropZoneTip: document.querySelector("#dropZoneTip"),
+  smartMatch: document.querySelector("#smartMatch"),
+  smartMatchText: document.querySelector("#smartMatchText"),
+  smartMatchActions: document.querySelector("#smartMatchActions"),
   helperText: document.querySelector("#helperText"),
+  selectionSummary: document.querySelector("#selectionSummary"),
   countBadge: document.querySelector("#countBadge"),
   fileList: document.querySelector("#fileList"),
   statusText: document.querySelector("#statusText"),
@@ -166,6 +187,7 @@ const elements = {
   imageOptions: document.querySelector("#imageOptions"),
   pdfOptions: document.querySelector("#pdfOptions"),
   optionsHint: document.querySelector("#optionsHint"),
+  advancedOptions: document.querySelector("#advancedOptions"),
   videoWarning: document.querySelector("#videoWarning"),
   videoProfileSelect: document.querySelector("#videoProfileSelect"),
   videoWidthSelect: document.querySelector("#videoWidthSelect"),
@@ -229,6 +251,7 @@ async function boot() {
   renderRecorderWarning();
   renderRecorderTimer();
   await registerServiceWorker();
+  scheduleFfmpegWarmup();
 }
 
 function populatePresetSelect() {
@@ -268,15 +291,31 @@ function bindEvents() {
   elements.presetSelect.addEventListener("change", () => {
     applyPreset(elements.presetSelect.value);
   });
+  elements.workflowGrid.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element)) {
+      return;
+    }
+
+    const button = event.target.closest("[data-preset-key]");
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+
+    applyPreset(button.dataset.presetKey);
+  });
   elements.pickFilesButton.addEventListener("click", () => {
     elements.fileInput.click();
   });
+  elements.pickFilesButton.addEventListener("mouseenter", primeFfmpegForCurrentPreset, { passive: true });
+  elements.pickFilesButton.addEventListener("focus", primeFfmpegForCurrentPreset, { passive: true });
   elements.clearFilesButton.addEventListener("click", clearSelectedFiles);
   elements.dropZone.addEventListener("click", () => {
     if (!isWorkspaceLocked()) {
       elements.fileInput.click();
     }
   });
+  elements.dropZone.addEventListener("mouseenter", primeFfmpegForCurrentPreset, { passive: true });
+  elements.dropZone.addEventListener("focus", primeFfmpegForCurrentPreset, { passive: true });
   elements.fileInput.addEventListener("change", () => {
     void setSelectedFiles(Array.from(elements.fileInput.files || []));
   });
@@ -295,6 +334,23 @@ function bindEvents() {
     if (!isWorkspaceLocked()) {
       void setSelectedFiles(Array.from(event.dataTransfer?.files || []));
     }
+  });
+  elements.smartMatchActions.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element)) {
+      return;
+    }
+
+    const button = event.target.closest("[data-match-preset]");
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+
+    if (state.pendingFiles.length === 0) {
+      return;
+    }
+
+    setActivePreset(button.dataset.matchPreset);
+    void setSelectedFiles([...state.pendingFiles], { allowSmartMatch: false });
   });
   elements.convertButton.addEventListener("click", () => {
     void runConversion();
@@ -339,24 +395,34 @@ function bindEvents() {
 }
 
 function applyPreset(presetKey) {
+  setActivePreset(presetKey);
+  clearSelectedFiles();
+}
+
+function setActivePreset(presetKey) {
   const preset = presets[presetKey];
   state.presetKey = presetKey;
   state.videoSettingsTouched = false;
   resetOptionInputs();
-  clearSelectedFiles();
   elements.presetSelect.value = presetKey;
   elements.fileInput.accept = preset.accept;
   elements.fileInput.multiple = preset.multiple;
   elements.helperText.textContent = preset.description;
+  elements.dropZoneLabel.textContent = preset.dropLabel;
   elements.dropZoneHint.textContent = preset.dropHint;
+  elements.dropZoneTip.textContent = getDropZoneTip(preset);
   elements.convertButton.textContent = preset.actionLabel;
   elements.formatBadge.textContent = preset.label;
   elements.optionsHint.textContent = preset.optionsHint;
   elements.videoOptions.hidden = preset.optionMode !== "video";
   elements.imageOptions.hidden = preset.optionMode !== "image";
   elements.pdfOptions.hidden = preset.optionMode !== "pdf";
+  elements.advancedOptions.open = false;
+  renderWorkflowCards();
+  renderSelectionSummary();
   renderVideoWarning();
   syncControlAvailability();
+  scheduleFfmpegWarmup();
 }
 
 function resetOptionInputs() {
@@ -374,30 +440,208 @@ function updateQualityLabels() {
   elements.webpQualityLabel.textContent = `${elements.webpQualityRange.value}%`;
 }
 
-async function setSelectedFiles(files) {
+function renderWorkflowCards() {
+  elements.workflowGrid.innerHTML = "";
+
+  for (const [key, preset] of Object.entries(presets)) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `workflow-card ${key === state.presetKey ? "is-active" : ""}`;
+    button.dataset.presetKey = key;
+    button.setAttribute("aria-pressed", String(key === state.presetKey));
+
+    const header = document.createElement("div");
+    header.className = "workflow-card-head";
+
+    const title = document.createElement("strong");
+    title.textContent = preset.label;
+
+    const type = document.createElement("span");
+    type.className = "workflow-card-type";
+    type.textContent = preset.group;
+
+    header.append(title, type);
+
+    const description = document.createElement("p");
+    description.textContent = preset.description;
+
+    const meta = document.createElement("div");
+    meta.className = "workflow-card-meta";
+
+    const count = document.createElement("span");
+    count.textContent = preset.multiple ? "One or many files" : "One file";
+
+    const engine = document.createElement("span");
+    engine.textContent = "Easy start";
+
+    meta.append(count, engine);
+    button.append(header, description, meta);
+    elements.workflowGrid.append(button);
+  }
+}
+
+function getDropZoneTip(preset) {
+  if (preset.usesFfmpeg) {
+    return "Your file stays on this device. Large videos can take a little longer.";
+  }
+
+  if (preset.optionMode === "pdf") {
+    return "Your files stay on this device and keep the same order shown below.";
+  }
+
+  return "Your files stay on this device while the conversion runs.";
+}
+
+function getPresetOutputLabel(preset) {
+  if (preset.actionLabel.startsWith("Create ")) {
+    return preset.actionLabel.replace("Create ", "");
+  }
+
+  if (preset.actionLabel === "Create PDF") {
+    return "PDF";
+  }
+
+  if (preset.actionLabel === "Combine PDFs") {
+    return "merged PDF";
+  }
+
+  return preset.actionLabel.toLowerCase();
+}
+
+function getPresetRequirementText(preset) {
+  if (preset.minimumFiles <= 1) {
+    return preset.multiple ? "Add one or more files." : "Add one file.";
+  }
+
+  return `Add at least ${preset.minimumFiles} files.`;
+}
+
+function renderSelectionSummary() {
   const preset = presets[state.presetKey];
-  const normalized = preset.multiple ? files : files.slice(0, 1);
-  const validFiles = normalized.filter((file) => matchesPresetFile(file, preset));
-  const skippedCount = normalized.length - validFiles.length;
+
+  if (state.files.length === 0) {
+    elements.selectionSummary.textContent =
+      `${getPresetRequirementText(preset)} The result will be a ${getPresetOutputLabel(preset)} file.`;
+    return;
+  }
+
+  const totalBytes = state.files.reduce((sum, file) => sum + file.size, 0);
+  const suffix = state.files.length === 1 ? "file is" : "files are";
+  let summary =
+    `${state.files.length} ${suffix} selected (${formatBytes(totalBytes)} total). ` +
+    `The result will be a ${getPresetOutputLabel(preset)} file.`;
+
+  if (state.videoInfo) {
+    summary += ` Video size: ${state.videoInfo.width}x${state.videoInfo.height}. Length: ${formatDuration(state.videoInfo.duration)}.`;
+  }
+
+  if (state.files.length < preset.minimumFiles) {
+    summary += ` Add ${preset.minimumFiles - state.files.length} more to continue.`;
+  }
+
+  elements.selectionSummary.textContent = summary;
+}
+
+function clearSmartMatch() {
+  state.pendingFiles = [];
+  elements.smartMatch.hidden = true;
+  elements.smartMatchText.textContent = "Choose the result you want for these files.";
+  elements.smartMatchActions.innerHTML = "";
+}
+
+function renderSmartMatch(files, presetKeys) {
+  state.pendingFiles = [...files];
+  elements.smartMatch.hidden = false;
+  elements.smartMatchText.textContent =
+    `These ${files.length} file${files.length === 1 ? "" : "s"} can work in more than one way. Choose the result you want.`;
+  elements.smartMatchActions.innerHTML = "";
+
+  for (const key of presetKeys) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary-button";
+    button.dataset.matchPreset = key;
+    button.textContent = presets[key].label;
+    elements.smartMatchActions.append(button);
+  }
+}
+
+function getMatchingPresetKeys(files) {
+  return Object.entries(presets)
+    .filter(([, preset]) => {
+      if (files.length < preset.minimumFiles) {
+        return false;
+      }
+
+      if (!preset.multiple && files.length > 1) {
+        return false;
+      }
+
+      return files.every((file) => matchesPresetFile(file, preset));
+    })
+    .sort((left, right) => right[1].smartRank - left[1].smartRank)
+    .map(([key]) => key);
+}
+
+async function setSelectedFiles(files, options = {}) {
+  const { allowSmartMatch = true } = options;
+  const preset = presets[state.presetKey];
+  const matchingFiles = files.filter((file) => matchesPresetFile(file, preset));
+  const validFiles = preset.multiple ? matchingFiles : matchingFiles.slice(0, 1);
+  const skippedCount = files.length - validFiles.length;
+
+  clearSmartMatch();
+
+  if (validFiles.length === 0 && files.length > 0 && allowSmartMatch) {
+    const matchingPresetKeys = getMatchingPresetKeys(files);
+
+    if (matchingPresetKeys.length === 1 && matchingPresetKeys[0] !== state.presetKey) {
+      setActivePreset(matchingPresetKeys[0]);
+      await setSelectedFiles(files, { allowSmartMatch: false });
+      setStatus(
+        `We switched to ${presets[matchingPresetKeys[0]].label} because it matches your file. Ready when you are.`,
+      );
+      return;
+    }
+
+    if (matchingPresetKeys.length > 1 && !matchingPresetKeys.includes(state.presetKey)) {
+      state.files = [];
+      state.videoInfo = null;
+      clearDownloads();
+      updateFileList();
+      renderSelectionSummary();
+      renderVideoWarning();
+      renderSmartMatch(files, matchingPresetKeys);
+      setStatus("Choose the result you want for these files.");
+      setProgress(0);
+      syncControlAvailability();
+      return;
+    }
+  }
 
   state.files = validFiles;
   clearDownloads();
   updateFileList();
   state.videoInfo = null;
+  renderSelectionSummary();
 
   if (validFiles.length === 0) {
     if (skippedCount > 0) {
-      setStatus("Selected files do not match this conversion preset.", true);
+      setStatus("These files do not match the option you picked.", true);
       renderVideoWarning();
       syncControlAvailability();
       return;
     }
 
-    setStatus("Select files to begin.");
+    setStatus("Pick or drop files to begin.");
     setProgress(0);
     renderVideoWarning();
     syncControlAvailability();
     return;
+  }
+
+  if (preset.usesFfmpeg) {
+    void loadFfmpeg({ quiet: true }).catch(() => {});
   }
 
   if (preset.optionMode === "video") {
@@ -406,16 +650,28 @@ async function setSelectedFiles(files) {
     renderVideoWarning();
   }
 
-  if (skippedCount > 0) {
+  renderSelectionSummary();
+
+  if (validFiles.length < preset.minimumFiles) {
+    const remaining = preset.minimumFiles - validFiles.length;
     setStatus(
-      `${skippedCount} file${skippedCount === 1 ? "" : "s"} skipped. Ready to ${preset.actionLabel.toLowerCase()}.`,
+      `Add ${remaining} more file${remaining === 1 ? "" : "s"} to continue.`,
     );
     setProgress(0);
     syncControlAvailability();
     return;
   }
 
-  setStatus(`Ready to ${preset.actionLabel.toLowerCase()}.`);
+  if (skippedCount > 0) {
+    setStatus(
+      `${skippedCount} file${skippedCount === 1 ? "" : "s"} did not match, but the rest are ready.`,
+    );
+    setProgress(0);
+    syncControlAvailability();
+    return;
+  }
+
+  setStatus("Ready. Press the button below to start.");
   setProgress(0);
   syncControlAvailability();
 }
@@ -423,10 +679,12 @@ async function setSelectedFiles(files) {
 function clearSelectedFiles() {
   state.files = [];
   state.videoInfo = null;
+  clearSmartMatch();
   elements.fileInput.value = "";
   updateFileList();
+  renderSelectionSummary();
   clearDownloads();
-  setStatus(isWorkspaceLocked() ? "Unlock the workspace to continue." : "Select files to begin.");
+  setStatus(isWorkspaceLocked() ? "Unlock the workspace to continue." : "Pick or drop files to begin.");
   setProgress(0);
   renderVideoWarning();
   syncControlAvailability();
@@ -462,6 +720,7 @@ function updateFileList() {
 
   const suffix = state.files.length === 1 ? "file" : "files";
   elements.countBadge.textContent = `${state.files.length} ${suffix}`;
+  renderSelectionSummary();
 }
 
 async function inspectVideoFile(file) {
@@ -485,19 +744,20 @@ function renderVideoWarning() {
     return;
   }
 
-  const { width, height, duration, severity, score } = state.videoInfo;
+  const { width, height, duration, severity } = state.videoInfo;
   const recommendation =
     severity === "severe"
-      ? "This looks heavy for a browser session. Compressed mode with a smaller width is recommended."
+      ? "This is a large video. Faster settings were picked to help it finish."
       : severity === "high"
-        ? "This clip is on the heavier side. Balanced mode should work, but compressed mode is safer."
+        ? "This video may take a while. Faster settings are safer."
         : severity === "medium"
-          ? "This job should be fine, though a compressed profile may finish faster."
-          : "This clip looks lightweight enough for an in-browser run.";
+          ? "This should be fine with the recommended settings."
+          : "This file looks small enough for a normal in-browser conversion.";
 
   elements.videoWarning.hidden = false;
   elements.videoWarning.textContent =
-    `${width}x${height} - ${formatDuration(duration)} - workload ${score}. ${recommendation}`;
+    `Video detected: ${width}x${height}, ${formatDuration(duration)}. ${recommendation}`;
+  elements.advancedOptions.open = severity === "high" || severity === "severe";
 }
 
 function maybeApplyRecommendedVideoSettings() {
@@ -505,16 +765,24 @@ function maybeApplyRecommendedVideoSettings() {
     return;
   }
 
+  const aggressive = shouldUseAggressiveVideoDefaults(state.videoInfo);
+
   if (state.videoInfo.severity === "high") {
     elements.videoProfileSelect.value = "compressed";
-    elements.videoWidthSelect.value = "1280";
-    elements.videoFpsSelect.value = "24";
+    elements.videoWidthSelect.value = aggressive ? "854" : "1280";
+    elements.videoFpsSelect.value = aggressive ? "20" : "24";
   } else if (state.videoInfo.severity === "severe") {
     elements.videoProfileSelect.value = "compressed";
-    elements.videoWidthSelect.value = "854";
-    elements.videoFpsSelect.value = "24";
+    elements.videoWidthSelect.value = aggressive ? "640" : "854";
+    elements.videoFpsSelect.value = aggressive ? "20" : "24";
     elements.stripAudioCheckbox.checked = true;
   }
+}
+
+function shouldUseAggressiveVideoDefaults(videoInfo) {
+  const memory = navigator.deviceMemory || 4;
+  const cores = navigator.hardwareConcurrency || 4;
+  return memory <= 4 || cores <= 4 || (videoInfo?.score || 0) >= 180;
 }
 
 function renderRecorderWarning(options = {}) {
@@ -525,39 +793,43 @@ function renderRecorderWarning(options = {}) {
   if (!available || !selectedFormat) {
     elements.recorderWarning.hidden = false;
     elements.recorderWarning.textContent =
-      "Screen recording needs both Screen Capture and MediaRecorder support in the current browser.";
+      "Screen recording is not fully supported in this browser.";
     if (!isRecorderBusy() && !preserveStatus) {
       setRecorderStatus("Screen recording is not available in this browser.", true);
       elements.recorderOutputMeta.textContent =
-        "Try Chromium or Firefox for the full recording workflow.";
+        "Try Chrome, Edge, or Firefox for the best recording support.";
     }
     return;
   }
 
-  const qualityLabel = elements.recordQualitySelect.value;
-  const widthLabel = elements.recordWidthSelect.value === "original"
-    ? "original width"
-    : `${elements.recordWidthSelect.value}px max width`;
+  const qualityLabel =
+    elements.recordQualitySelect.selectedOptions[0]?.textContent ||
+    elements.recordQualitySelect.value;
+  const widthLabel =
+    elements.recordWidthSelect.selectedOptions[0]?.textContent ||
+    (elements.recordWidthSelect.value === "original"
+      ? "original width"
+      : `${elements.recordWidthSelect.value}px max width`);
   const notes = [
-    `${selectedFormat.label} output selected.`,
-    `${widthLabel} at ${elements.recordFpsSelect.value} FPS with ${qualityLabel} quality.`,
+    `Saving as ${selectedFormat.label}.`,
+    `${widthLabel} at ${elements.recordFpsSelect.value} FPS with ${qualityLabel}.`,
   ];
 
   if (selectedFormat.needsTranscode) {
-    notes.push("This browser will capture WebM first and convert it to MP4 after recording stops.");
+    notes.push("This browser will record first, then finish the MP4 after you stop.");
   }
 
   if (elements.recordAudioCheckbox.checked) {
-    notes.push("Audio is requested, but the browser and chosen surface decide whether it is available.");
+    notes.push("Audio depends on what the browser lets the app capture.");
   }
 
   elements.recorderWarning.hidden = false;
   elements.recorderWarning.textContent = notes.join(" ");
 
   if (!isRecorderBusy() && !preserveStatus) {
-    setRecorderStatus("Ready to capture");
+    setRecorderStatus("Ready");
     elements.recorderOutputMeta.textContent =
-      "Your recording will stay local and appear in the downloads area when it is ready.";
+      "Your recording stays on this device and will appear in the downloads area.";
   }
 }
 
@@ -632,6 +904,10 @@ async function startScreenRecording() {
 
   const settings = getRecorderSettings();
   const displayOptions = buildDisplayMediaOptions(settings);
+
+  if (selectedFormat.needsTranscode) {
+    void loadFfmpeg({ quiet: true }).catch(() => {});
+  }
 
   try {
     const stream = await navigator.mediaDevices.getDisplayMedia(displayOptions);
@@ -855,6 +1131,8 @@ function stopRecorderTracks() {
 }
 
 async function runConversion() {
+  const preset = presets[state.presetKey];
+
   if (state.busy) {
     return;
   }
@@ -869,8 +1147,8 @@ async function runConversion() {
     return;
   }
 
-  if (state.files.length === 0) {
-    setStatus("Select at least one file first.", true);
+  if (state.files.length < preset.minimumFiles) {
+    setStatus(getPresetRequirementText(preset), true);
     return;
   }
 
@@ -879,7 +1157,7 @@ async function runConversion() {
   state.currentJob = {
     id: createJobId(),
     presetKey: state.presetKey,
-    presetLabel: presets[state.presetKey].label,
+    presetLabel: preset.label,
     inputNames: state.files.map((file) => file.name),
     inputBytes: state.files.reduce((sum, file) => sum + file.size, 0),
     startedAt: Date.now(),
@@ -897,10 +1175,6 @@ async function runConversion() {
       case "webmToMp4":
         outputs = await convertWebmToMp4(state.files[0]);
         note = "Adaptive MP4 conversion finished.";
-        break;
-      case "videoPosterPng":
-        outputs = await extractPosterFromVideo(state.files[0]);
-        note = "Poster image extracted from the video.";
         break;
       case "imagesToPdf":
         outputs = await convertImagesToPdf(state.files);
@@ -975,12 +1249,13 @@ function cancelCurrentJob() {
 }
 
 async function convertWebmToMp4(file) {
-  const ffmpeg = await loadFfmpeg();
   const inputName = `input.${getExtension(file.name) || "webm"}`;
-  const outputName = `${stripExtension(file.name)}.mp4`;
+  const outputName = buildOutputName(file, "mp4");
+  setStatus("Preparing the video engine and file.");
+  const [ffmpeg, inputData] = await Promise.all([loadFfmpeg(), fetchFile(file)]);
 
   setStatus("Loading video file into the browser worker.");
-  await ffmpeg.writeFile(inputName, await fetchFile(file));
+  await ffmpeg.writeFile(inputName, inputData);
   setStatus("Transcoding WebM to MP4.");
 
   try {
@@ -1005,6 +1280,7 @@ async function convertWebmToMp4(file) {
 function buildMp4CommandSets(inputName, outputName) {
   const filters = buildVideoFilters();
   const profile = getVideoProfileOptions();
+  const videoArgs = buildH264VideoArgs(profile);
   const audioArgs = elements.stripAudioCheckbox.checked
     ? ["-an"]
     : ["-c:a", "aac", "-b:a", profile.audioBitrate];
@@ -1016,16 +1292,7 @@ function buildMp4CommandSets(inputName, outputName) {
         "-i",
         inputName,
         ...filters,
-        "-c:v",
-        "libx264",
-        "-preset",
-        profile.x264Preset,
-        "-crf",
-        profile.x264Crf,
-        "-pix_fmt",
-        "yuv420p",
-        "-movflags",
-        "+faststart",
+        ...videoArgs,
         ...audioArgs,
         outputName,
       ],
@@ -1040,8 +1307,6 @@ function buildMp4CommandSets(inputName, outputName) {
         "mpeg4",
         "-q:v",
         profile.mpeg4Q,
-        "-movflags",
-        "+faststart",
         ...audioArgs,
         outputName,
       ],
@@ -1055,7 +1320,7 @@ function buildVideoFilters() {
   const maxFps = elements.videoFpsSelect.value;
 
   if (maxWidth !== "original") {
-    filters.push(`scale='min(${maxWidth},iw)':-2`);
+    filters.push(`scale='min(${maxWidth},iw)':-2:flags=fast_bilinear`);
   }
 
   if (maxFps !== "original") {
@@ -1247,75 +1512,37 @@ function getVideoProfileOptions() {
   switch (elements.videoProfileSelect.value) {
     case "archive":
       return {
-        x264Preset: "medium",
+        x264Preset: "fast",
         x264Crf: "18",
         mpeg4Q: "3",
         audioBitrate: "192k",
       };
     case "compressed":
       return {
-        x264Preset: "veryfast",
-        x264Crf: "29",
+        x264Preset: "ultrafast",
+        x264Crf: "30",
         mpeg4Q: "10",
         audioBitrate: "96k",
+        tune: "zerolatency",
       };
     case "balanced":
     default:
       return {
-        x264Preset: "faster",
-        x264Crf: "23",
+        x264Preset: "superfast",
+        x264Crf: "24",
         mpeg4Q: "6",
-        audioBitrate: "160k",
+        audioBitrate: "128k",
       };
   }
 }
 
-async function extractPosterFromVideo(file) {
-  const { video, cleanup } = await loadVideo(file);
-
-  try {
-    const captureTime = computePosterCaptureTime(video.duration);
-    if (captureTime > 0) {
-      await seekVideo(video, captureTime);
-    }
-
-    const maxWidthValue = elements.videoWidthSelect.value;
-    const maxWidth =
-      maxWidthValue === "original" ? video.videoWidth : Number(maxWidthValue);
-    const scale = Math.min(1, maxWidth / video.videoWidth);
-    const width = Math.max(1, Math.round(video.videoWidth * scale));
-    const height = Math.max(1, Math.round(video.videoHeight * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-
-    const context = canvas.getContext("2d");
-    if (!context) {
-      throw new Error("Canvas is not available for poster extraction.");
-    }
-
-    context.drawImage(video, 0, 0, width, height);
-    const blob = await canvasToBlob(canvas, "image/png");
-    const result = addDownload({
-      name: `${stripExtension(file.name)}-poster.png`,
-      blob,
-      caption: `Poster captured from ${file.name}.`,
-    });
-    setProgress(100);
-    setStatus("Poster extraction finished.");
-    return [result];
-  } finally {
-    cleanup();
-  }
-}
-
 async function transcodeRecordedBlobToMp4(blob, session) {
-  const ffmpeg = await loadFfmpeg();
   const inputExtension = mimeTypeToExtension(blob.type) || "webm";
   const inputName = `recording-input.${inputExtension}`;
   const outputName = `${session.fileBaseName}.mp4`;
+  const [ffmpeg, inputData] = await Promise.all([loadFfmpeg(), fetchFile(blob)]);
 
-  await ffmpeg.writeFile(inputName, await fetchFile(blob));
+  await ffmpeg.writeFile(inputName, inputData);
 
   try {
     await execWithFallback(
@@ -1344,20 +1571,12 @@ async function transcodeRecordedBlobToMp4(blob, session) {
 function buildRecordingMp4CommandSets(inputName, outputName, session) {
   const profile = getRecorderTranscodeProfile(session.quality);
   const filters = buildCustomVideoFilters(session.width, session.fps);
+  const videoArgs = buildH264VideoArgs(profile);
   const withAudioArgs = [
     "-i",
     inputName,
     ...filters,
-    "-c:v",
-    "libx264",
-    "-preset",
-    profile.x264Preset,
-    "-crf",
-    profile.x264Crf,
-    "-pix_fmt",
-    "yuv420p",
-    "-movflags",
-    "+faststart",
+    ...videoArgs,
     "-c:a",
     "aac",
     "-b:a",
@@ -1368,16 +1587,7 @@ function buildRecordingMp4CommandSets(inputName, outputName, session) {
     "-i",
     inputName,
     ...filters,
-    "-c:v",
-    "libx264",
-    "-preset",
-    profile.x264Preset,
-    "-crf",
-    profile.x264Crf,
-    "-pix_fmt",
-    "yuv420p",
-    "-movflags",
-    "+faststart",
+    ...videoArgs,
     "-an",
     outputName,
   ];
@@ -1405,7 +1615,7 @@ function buildCustomVideoFilters(maxWidth, fps) {
   const filters = [];
 
   if (maxWidth !== "original") {
-    filters.push(`scale='min(${maxWidth},iw)':-2`);
+    filters.push(`scale='min(${maxWidth},iw)':-2:flags=fast_bilinear`);
   }
 
   if (fps !== "original") {
@@ -1419,34 +1629,47 @@ function getRecorderTranscodeProfile(quality) {
   switch (quality) {
     case "crisp":
       return {
-        x264Preset: "medium",
+        x264Preset: "fast",
         x264Crf: "18",
         audioBitrate: "192k",
       };
     case "compact":
       return {
-        x264Preset: "veryfast",
-        x264Crf: "29",
+        x264Preset: "ultrafast",
+        x264Crf: "30",
         audioBitrate: "96k",
+        tune: "zerolatency",
       };
     case "balanced":
     default:
       return {
-        x264Preset: "faster",
-        x264Crf: "23",
-        audioBitrate: "160k",
+        x264Preset: "superfast",
+        x264Crf: "24",
+        audioBitrate: "128k",
       };
   }
 }
 
 async function convertImagesToPdf(files) {
   const pdf = await PDFDocument.create();
+  let preparedCount = 0;
+  const preparedImages = await mapWithConcurrency(
+    files,
+    Math.min(getPdfJobConcurrency(), files.length),
+    async (file) => {
+      const prepared = await getPdfReadyImage(file);
+      preparedCount += 1;
+      setStatus(`Preparing image ${preparedCount} of ${files.length}.`);
+      setProgress(8 + Math.round((preparedCount / files.length) * 28));
+      return prepared;
+    },
+  );
 
-  for (const [index, file] of files.entries()) {
-    setStatus(`Embedding image ${index + 1} of ${files.length}.`);
-    setProgress(8 + Math.round((index / files.length) * 72));
+  for (const [index, prepared] of preparedImages.entries()) {
+    setStatus(`Adding image ${index + 1} of ${files.length} to the PDF.`);
+    setProgress(40 + Math.round((index / files.length) * 48));
 
-    const { blob, width, height } = await getPdfReadyImage(file);
+    const { blob, width, height } = prepared;
     const bytes = await blob.arrayBuffer();
     const embedded =
       blob.type === "image/jpeg"
@@ -1466,9 +1689,9 @@ async function convertImagesToPdf(files) {
 
   setStatus("Saving PDF file.");
   setProgress(92);
-  const pdfBytes = await pdf.save();
+  const pdfBytes = await pdf.save(PDF_FAST_SAVE_OPTIONS);
   const result = addDownload({
-    name: "converted-images.pdf",
+    name: buildBatchOutputName(files, "pdf", "combined"),
     blob: new Blob([pdfBytes], { type: "application/pdf" }),
     caption: `${files.length} image${files.length === 1 ? "" : "s"} combined into one PDF.`,
   });
@@ -1485,7 +1708,10 @@ async function mergePdfFiles(files) {
     setStatus(`Merging PDF ${index + 1} of ${files.length}.`);
     setProgress(8 + Math.round((index / files.length) * 72));
 
-    const source = await PDFDocument.load(await file.arrayBuffer());
+    const source = await PDFDocument.load(await file.arrayBuffer(), {
+      parseSpeed: PDF_FAST_PARSE_SPEED,
+      updateMetadata: false,
+    });
     const pages = await mergedPdf.copyPages(source, source.getPageIndices());
     totalPages += pages.length;
     for (const page of pages) {
@@ -1493,9 +1719,11 @@ async function mergePdfFiles(files) {
     }
   }
 
-  const pdfBytes = await mergedPdf.save();
+  setStatus("Saving merged PDF.");
+  setProgress(92);
+  const pdfBytes = await mergedPdf.save(PDF_FAST_SAVE_OPTIONS);
   const result = addDownload({
-    name: "merged-documents.pdf",
+    name: buildBatchOutputName(files, "pdf", "merged"),
     blob: new Blob([pdfBytes], { type: "application/pdf" }),
     caption: `${files.length} PDFs merged into one document with ${totalPages} pages.`,
   });
@@ -1505,19 +1733,19 @@ async function mergePdfFiles(files) {
 }
 
 async function convertImagesToFormat(files, options) {
-  const converted = [];
-
-  for (const [index, file] of files.entries()) {
-    setStatus(`Converting image ${index + 1} of ${files.length}.`);
-    setProgress(8 + Math.round((index / files.length) * 72));
-
+  let completed = 0;
+  const concurrency = Math.min(getImageJobConcurrency(), files.length);
+  const converted = await mapWithConcurrency(files, concurrency, async (file) => {
     const blob = await reencodeImage(file, options);
-    converted.push({
+    completed += 1;
+    setStatus(`Processing images ${completed} of ${files.length}.`);
+    setProgress(8 + Math.round((completed / files.length) * 72));
+    return {
       name: `${stripExtension(file.name)}.${options.extension}`,
       blob,
       source: file.name,
-    });
-  }
+    };
+  });
 
   if (converted.length === 1) {
     const result = addDownload({
@@ -1540,8 +1768,7 @@ async function convertImagesToFormat(files, options) {
   const zipBlob = await zip.generateAsync(
     {
       type: "blob",
-      compression: "DEFLATE",
-      compressionOptions: { level: 6 },
+      compression: "STORE",
     },
     (metadata) => {
       setProgress(84 + Math.round(metadata.percent / 6.25));
@@ -1549,7 +1776,7 @@ async function convertImagesToFormat(files, options) {
   );
 
   const result = addDownload({
-    name: `converted-${options.extension}-files.zip`,
+    name: buildBatchArchiveName(files, options.extension),
     blob: zipBlob,
     caption: `${converted.length} converted files bundled into a zip archive.`,
   });
@@ -1558,14 +1785,20 @@ async function convertImagesToFormat(files, options) {
   return [result];
 }
 
-async function loadFfmpeg() {
+async function loadFfmpeg(options = {}) {
+  const quiet = options.quiet === true;
+
   if (state.ffmpegPromise) {
+    if (!state.ffmpegReady && !quiet) {
+      setStatus("Loading browser video engine. First run may take a moment.");
+    }
     return state.ffmpegPromise;
   }
 
   const ffmpeg = new FFmpeg();
   const coreBaseUrl = new URL("./vendor/ffmpeg-core/", window.location.href);
   state.ffmpeg = ffmpeg;
+  state.ffmpegReady = false;
 
   ffmpeg.on("progress", ({ progress }) => {
     if (!Number.isFinite(progress)) {
@@ -1577,15 +1810,68 @@ async function loadFfmpeg() {
   });
 
   state.ffmpegPromise = (async () => {
-    setStatus("Loading browser video engine. First run may take a moment.");
-    await ffmpeg.load({
-      coreURL: new URL("ffmpeg-core.js", coreBaseUrl).href,
-      wasmURL: new URL("ffmpeg-core.wasm", coreBaseUrl).href,
-    });
-    return ffmpeg;
+    try {
+      if (!quiet) {
+        setStatus("Loading browser video engine. First run may take a moment.");
+      }
+
+      await ffmpeg.load({
+        coreURL: new URL("ffmpeg-core.js", coreBaseUrl).href,
+        wasmURL: new URL("ffmpeg-core.wasm", coreBaseUrl).href,
+      });
+      state.ffmpegReady = true;
+      return ffmpeg;
+    } catch (error) {
+      resetFfmpeg();
+      throw error;
+    }
   })();
 
   return state.ffmpegPromise;
+}
+
+function primeFfmpegForCurrentPreset() {
+  if (!presets[state.presetKey].usesFfmpeg) {
+    return;
+  }
+
+  if (state.busy || state.ffmpegPromise || isWorkspaceLocked()) {
+    return;
+  }
+
+  if (document.visibilityState === "hidden") {
+    return;
+  }
+
+  void loadFfmpeg({ quiet: true }).catch(() => {});
+}
+
+function scheduleFfmpegWarmup() {
+  if (!presets[state.presetKey].usesFfmpeg) {
+    return;
+  }
+
+  const memory = navigator.deviceMemory || 4;
+  const cores = navigator.hardwareConcurrency || 4;
+
+  if (memory < 4 || cores < 4) {
+    return;
+  }
+
+  if (state.busy || state.ffmpegPromise || isWorkspaceLocked()) {
+    return;
+  }
+
+  const warmup = () => {
+    primeFfmpegForCurrentPreset();
+  };
+
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(warmup, { timeout: 2500 });
+    return;
+  }
+
+  window.setTimeout(warmup, 1200);
 }
 
 async function execWithFallback(ffmpeg, inputName, outputName, commandSets) {
@@ -1623,6 +1909,61 @@ async function removeFfmpegFile(ffmpeg, fileName) {
 function resetFfmpeg() {
   state.ffmpeg = null;
   state.ffmpegPromise = null;
+  state.ffmpegReady = false;
+}
+
+function getImageJobConcurrency() {
+  const cores = navigator.hardwareConcurrency || 4;
+  const memory = navigator.deviceMemory || 4;
+
+  if (memory <= 2 || cores <= 4) {
+    return 2;
+  }
+
+  if (memory >= 12 && cores >= 12) {
+    return 5;
+  }
+
+  if (memory >= 8 && cores >= 8) {
+    return 4;
+  }
+
+  return 3;
+}
+
+function getPdfJobConcurrency() {
+  const cores = navigator.hardwareConcurrency || 4;
+  const memory = navigator.deviceMemory || 4;
+
+  if (memory <= 2 || cores <= 4) {
+    return 1;
+  }
+
+  if (memory >= 12 && cores >= 12) {
+    return 4;
+  }
+
+  if (memory >= 8 && cores >= 8) {
+    return 3;
+  }
+
+  return 2;
+}
+
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  const workers = Array.from({ length: Math.max(1, concurrency) }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
 }
 
 async function getPdfReadyImage(file) {
@@ -1630,6 +1971,18 @@ async function getPdfReadyImage(file) {
 
   try {
     const outputType = file.type === "image/jpeg" ? "image/jpeg" : "image/png";
+    const sourceWidth = getGraphicWidth(image);
+    const sourceHeight = getGraphicHeight(image);
+    const longestSide = Math.max(sourceWidth, sourceHeight);
+
+    if (outputType === file.type && longestSide <= 2200) {
+      return {
+        blob: file,
+        width: sourceWidth,
+        height: sourceHeight,
+      };
+    }
+
     const canvas = renderImageToCanvas(image, { maxSide: 2200 });
     const blob = await canvasToBlob(
       canvas,
@@ -1651,6 +2004,12 @@ async function reencodeImage(file, options) {
   const { image, cleanup } = await loadImage(file);
 
   try {
+    const longestSide = Math.max(getGraphicWidth(image), getGraphicHeight(image));
+
+    if (options.mimeType === file.type && !options.background && longestSide <= 2600) {
+      return file;
+    }
+
     const canvas = renderImageToCanvas(image, {
       maxSide: 2600,
       background: options.background,
@@ -1662,19 +2021,22 @@ async function reencodeImage(file, options) {
 }
 
 function renderImageToCanvas(image, options = {}) {
-  const longestSide = Math.max(image.naturalWidth, image.naturalHeight);
+  const sourceWidth = getGraphicWidth(image);
+  const sourceHeight = getGraphicHeight(image);
+  const longestSide = Math.max(sourceWidth, sourceHeight);
   const scale =
     options.maxSide && longestSide > options.maxSide
       ? options.maxSide / longestSide
       : 1;
 
-  const width = Math.max(1, Math.round(image.naturalWidth * scale));
-  const height = Math.max(1, Math.round(image.naturalHeight * scale));
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
+  const width = Math.max(1, Math.round(sourceWidth * scale));
+  const height = Math.max(1, Math.round(sourceHeight * scale));
+  const canvas = createWorkingCanvas(width, height);
 
-  const context = canvas.getContext("2d");
+  const context = canvas.getContext("2d", {
+    alpha: !options.background,
+    desynchronized: true,
+  });
 
   if (!context) {
     throw new Error("Canvas is not available in this browser.");
@@ -1689,7 +2051,44 @@ function renderImageToCanvas(image, options = {}) {
   return canvas;
 }
 
+function createWorkingCanvas(width, height) {
+  if (typeof OffscreenCanvas === "function") {
+    return new OffscreenCanvas(width, height);
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  return canvas;
+}
+
+function buildH264VideoArgs(profile) {
+  const args = [
+    "-c:v",
+    "libx264",
+    "-preset",
+    profile.x264Preset,
+    "-crf",
+    profile.x264Crf,
+    "-pix_fmt",
+    "yuv420p",
+  ];
+
+  if (profile.tune) {
+    args.push("-tune", profile.tune);
+  }
+
+  return args;
+}
+
 function canvasToBlob(canvas, mimeType, quality) {
+  if (typeof canvas.convertToBlob === "function") {
+    return canvas.convertToBlob({
+      type: mimeType,
+      quality,
+    });
+  }
+
   return new Promise((resolve, reject) => {
     canvas.toBlob(
       (blob) => {
@@ -1707,9 +2106,23 @@ function canvasToBlob(canvas, mimeType, quality) {
 }
 
 function loadImage(file) {
+  if (typeof createImageBitmap === "function") {
+    return createImageBitmap(file)
+      .then((image) => ({
+        image,
+        cleanup: () => image.close?.(),
+      }))
+      .catch(() => loadImageElement(file));
+  }
+
+  return loadImageElement(file);
+}
+
+function loadImageElement(file) {
   return new Promise((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file);
     const image = new Image();
+    image.decoding = "async";
 
     image.onload = () => {
       resolve({
@@ -1725,6 +2138,14 @@ function loadImage(file) {
 
     image.src = objectUrl;
   });
+}
+
+function getGraphicWidth(image) {
+  return image.naturalWidth || image.videoWidth || image.width || 0;
+}
+
+function getGraphicHeight(image) {
+  return image.naturalHeight || image.videoHeight || image.height || 0;
 }
 
 function loadVideo(file) {
@@ -1785,33 +2206,6 @@ function assessVideoWorkload(info, sizeBytes) {
     score,
     severity,
   };
-}
-
-function computePosterCaptureTime(duration) {
-  if (!Number.isFinite(duration) || duration <= 0.15) {
-    return 0;
-  }
-
-  return Math.min(Math.max(duration * 0.25, 0.1), duration - 0.05);
-}
-
-function seekVideo(video, time) {
-  return new Promise((resolve, reject) => {
-    const handleSeeked = () => {
-      video.removeEventListener("seeked", handleSeeked);
-      video.removeEventListener("error", handleError);
-      resolve();
-    };
-    const handleError = () => {
-      video.removeEventListener("seeked", handleSeeked);
-      video.removeEventListener("error", handleError);
-      reject(new Error("Could not seek to the requested frame."));
-    };
-
-    video.addEventListener("seeked", handleSeeked, { once: true });
-    video.addEventListener("error", handleError, { once: true });
-    video.currentTime = time;
-  });
 }
 
 function addDownload({ name, blob, caption }) {
@@ -1913,7 +2307,7 @@ function renderHistory() {
   if (isWorkspaceLocked()) {
     const locked = document.createElement("li");
     locked.className = "history-empty";
-    locked.textContent = "Unlock the workspace to view local activity history.";
+    locked.textContent = "Unlock to see past activity saved in this browser.";
     elements.historyList.append(locked);
     return;
   }
@@ -1921,7 +2315,7 @@ function renderHistory() {
   if (state.history.length === 0) {
     const empty = document.createElement("li");
     empty.className = "history-empty";
-    empty.textContent = "No conversions have been recorded yet.";
+    empty.textContent = "No past conversions yet.";
     elements.historyList.append(empty);
     return;
   }
@@ -1960,7 +2354,7 @@ function renderAnalytics() {
     elements.statBytes.textContent = "Locked";
     elements.statLastRun.textContent = "Locked";
     elements.favoritePreset.textContent =
-      "Unlock the workspace to view the local analytics summary.";
+      "Unlock to see the local summary stored in this browser.";
     return;
   }
 
@@ -1973,8 +2367,8 @@ function renderAnalytics() {
 
   const favorite = getFavoritePreset();
   elements.favoritePreset.textContent = favorite
-    ? `Most-used preset so far: ${favorite.label} (${favorite.count} runs).`
-    : "Local-only analytics stay in this browser. No external telemetry is sent.";
+    ? `Most used so far: ${favorite.label} (${favorite.count} time${favorite.count === 1 ? "" : "s"}).`
+    : "This summary stays in this browser only. Nothing is sent anywhere.";
 }
 
 function renderDiagnostics() {
@@ -1995,20 +2389,20 @@ function renderDiagnostics() {
     elements.diagnosticsGrid.append(card);
   }
 
-  const memory = navigator.deviceMemory ? `${navigator.deviceMemory} GB RAM hint` : "Device memory hint unavailable";
+  const memory = navigator.deviceMemory ? `${navigator.deviceMemory} GB memory hint` : "Memory hint unavailable";
   const cores = navigator.hardwareConcurrency
-    ? `${navigator.hardwareConcurrency} logical cores`
+    ? `${navigator.hardwareConcurrency} CPU cores`
     : "CPU core hint unavailable";
-  elements.deviceHint.textContent = `${memory} - ${cores}`;
+  elements.deviceHint.textContent = `About this device: ${memory}, ${cores}.`;
 }
 
 function renderProfile() {
   elements.profileNameInput.value = state.profile.displayName;
   elements.authStatus.textContent = state.profile.pinHash
     ? isWorkspaceLocked()
-      ? "A local workspace PIN is set. Unlock to use conversions and view history."
-      : "Workspace is unlocked. Local history and analytics are protected by your PIN."
-    : "No PIN set yet. Add one if you want to lock local history and controls.";
+      ? "A PIN is set. Unlock to use the app and see saved activity."
+      : "Private mode is unlocked. Your local history is protected by your PIN."
+    : "No PIN is set right now. You can add one if you want extra privacy.";
 
   elements.setPinButton.textContent = state.profile.pinHash ? "Update PIN" : "Set PIN";
   elements.unlockButton.disabled = !state.profile.pinHash || !isWorkspaceLocked();
@@ -2131,10 +2525,19 @@ function syncControlAvailability() {
   const recorderUnavailable = !canScreenRecord() || state.recorderFormats.length === 0;
 
   elements.presetSelect.disabled = disabled;
+  elements.dropZone.disabled = disabled;
   elements.pickFilesButton.disabled = disabled;
   elements.clearFilesButton.disabled = disabled || state.files.length === 0;
   elements.fileInput.disabled = disabled;
-  elements.convertButton.disabled = disabled || state.files.length === 0;
+  elements.convertButton.disabled = disabled || state.files.length < preset.minimumFiles;
+
+  for (const card of elements.workflowGrid.querySelectorAll("button")) {
+    card.disabled = disabled;
+  }
+
+  for (const button of elements.smartMatchActions.querySelectorAll("button")) {
+    button.disabled = disabled;
+  }
 
   const optionControls = [
     elements.videoProfileSelect,
@@ -2373,6 +2776,33 @@ function formatTimestamp(timestamp) {
 
 function stripExtension(fileName) {
   return fileName.replace(/\.[^.]+$/, "") || "converted-file";
+}
+
+function buildOutputName(file, extension) {
+  return `${stripExtension(file.name)}.${extension}`;
+}
+
+function getBatchBaseName(files) {
+  if (!Array.isArray(files) || files.length === 0) {
+    return "converted-file";
+  }
+
+  return stripExtension(files[0].name);
+}
+
+function buildBatchOutputName(files, extension, suffix) {
+  const baseName = getBatchBaseName(files);
+
+  if (files.length <= 1) {
+    return `${baseName}.${extension}`;
+  }
+
+  return `${baseName}-${suffix}.${extension}`;
+}
+
+function buildBatchArchiveName(files, extension) {
+  const baseName = getBatchBaseName(files);
+  return `${baseName}-${extension}-files.zip`;
 }
 
 function getExtension(fileName) {

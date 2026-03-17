@@ -1,4 +1,4 @@
-const CACHE_NAME = "free-converter-shell-v1";
+const CACHE_NAME = "free-converter-shell-v2";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -6,11 +6,31 @@ const APP_SHELL = [
   "./app.js",
   "./vendor/pdf-lib.min.js",
   "./vendor/jszip.min.js",
+  "./vendor/ffmpeg/index.js",
+  "./vendor/ffmpeg-util/index.js",
+];
+
+const HOT_VIDEO_ASSETS = [
+  "./vendor/ffmpeg/worker.js",
+  "./vendor/ffmpeg/classes.js",
+  "./vendor/ffmpeg/const.js",
+  "./vendor/ffmpeg/errors.js",
+  "./vendor/ffmpeg/types.js",
+  "./vendor/ffmpeg/utils.js",
+  "./vendor/ffmpeg-core/ffmpeg-core.js",
+  "./vendor/ffmpeg-core/ffmpeg-core.wasm",
 ];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)),
+    caches.open(CACHE_NAME).then(async (cache) => {
+      await cache.addAll(APP_SHELL);
+      await Promise.all(
+        HOT_VIDEO_ASSETS.map((asset) =>
+          cache.add(asset).catch(() => undefined),
+        ),
+      );
+    }),
   );
   self.skipWaiting();
 });
