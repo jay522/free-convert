@@ -18,10 +18,17 @@ Use this checklist when validating free-converter with real files before release
 - Silent `webm -> mp4`
 - Screen recording to `webm`
 - Screen recording to `mp4`
+- Screen recording with `Entire screen` selected while switching between apps or windows
+- Screen recording with `App window` selected and confirm only that window is captured
+- Screen recording with `Browser tab` selected and confirm only that tab is captured
 - Screen recording with `compact`, `balanced`, and `crisp` quality
 - Screen recording with `original`, `1280`, and `854` max width options
 - Screen recording with `15`, `24`, `30`, and `60` FPS options
 - Screen recording with and without system/tab audio
+- Camera recording to `webm`
+- Camera recording to `mp4`
+- Camera recording with `None` and `Microphone` audio modes
+- Confirm `Screen + Camera` stays disabled and marked as coming soon
 - `jpg/png/webp -> pdf` with 1 image
 - `jpg/png/webp -> pdf` with 10+ images
 - Merge 2 PDF files
@@ -29,7 +36,6 @@ Use this checklist when validating free-converter with real files before release
 - `png/webp -> jpg`
 - `jpg/webp -> png`
 - `jpg/png -> webp`
-- Video poster extraction from MP4 and WebM
 
 ## Large-file handling
 

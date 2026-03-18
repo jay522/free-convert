@@ -18,6 +18,7 @@ const STORAGE_KEYS = {
 const HISTORY_LIMIT = 12;
 const SPECIAL_PRESET_LABELS = {
   screenRecorder: "Screen Recorder",
+  cameraRecorder: "Camera Recorder",
 };
 
 const presets = {
@@ -147,12 +148,17 @@ const state = {
     processing: false,
     stopRequested: false,
     stream: null,
+    sourceStreams: [],
+    audioContext: null,
     mediaRecorder: null,
     chunks: [],
     startedAt: 0,
     timerId: null,
+    captureMode: "",
+    audioMode: "",
     desiredFormat: "",
     captureMimeType: "",
+    captureSurface: "",
     fileBaseName: "",
     previewUrl: "",
   },
@@ -215,11 +221,16 @@ const elements = {
   statBytes: document.querySelector("#statBytes"),
   statLastRun: document.querySelector("#statLastRun"),
   favoritePreset: document.querySelector("#favoritePreset"),
+  recordCaptureModeInput: document.querySelector("#recordCaptureModeInput"),
+  recordCaptureModeGroup: document.querySelector("#recordCaptureModeGroup"),
+  recordAudioModeInput: document.querySelector("#recordAudioModeInput"),
+  recordAudioModeGroup: document.querySelector("#recordAudioModeGroup"),
   recordFormatSelect: document.querySelector("#recordFormatSelect"),
+  recordSurfaceField: document.querySelector("#recordSurfaceField"),
+  recordSurfaceSelect: document.querySelector("#recordSurfaceSelect"),
   recordQualitySelect: document.querySelector("#recordQualitySelect"),
   recordWidthSelect: document.querySelector("#recordWidthSelect"),
   recordFpsSelect: document.querySelector("#recordFpsSelect"),
-  recordAudioCheckbox: document.querySelector("#recordAudioCheckbox"),
   recorderWarning: document.querySelector("#recorderWarning"),
   recorderHint: document.querySelector("#recorderHint"),
   startRecordingButton: document.querySelector("#startRecordingButton"),
@@ -248,6 +259,7 @@ async function boot() {
   renderHistory();
   updateQualityLabels();
   applyPreset(state.presetKey);
+  renderRecorderControls();
   renderRecorderWarning();
   renderRecorderTimer();
   await registerServiceWorker();
@@ -381,11 +393,35 @@ function bindEvents() {
   elements.lockButton.addEventListener("click", lockWorkspace);
   elements.removePinButton.addEventListener("click", removeWorkspacePin);
   elements.clearHistoryButton.addEventListener("click", clearActivity);
+  elements.recordCaptureModeGroup.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element)) {
+      return;
+    }
+
+    const button = event.target.closest("[data-record-mode]");
+    if (!(button instanceof HTMLButtonElement) || button.disabled) {
+      return;
+    }
+
+    setRecorderCaptureMode(button.dataset.recordMode);
+  });
+  elements.recordAudioModeGroup.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element)) {
+      return;
+    }
+
+    const button = event.target.closest("[data-record-audio]");
+    if (!(button instanceof HTMLButtonElement) || button.disabled) {
+      return;
+    }
+
+    setRecorderAudioMode(button.dataset.recordAudio);
+  });
   elements.recordFormatSelect.addEventListener("change", renderRecorderWarning);
+  elements.recordSurfaceSelect.addEventListener("change", renderRecorderWarning);
   elements.recordQualitySelect.addEventListener("change", renderRecorderWarning);
   elements.recordWidthSelect.addEventListener("change", renderRecorderWarning);
   elements.recordFpsSelect.addEventListener("change", renderRecorderWarning);
-  elements.recordAudioCheckbox.addEventListener("change", renderRecorderWarning);
   elements.startRecordingButton.addEventListener("click", () => {
     void startScreenRecording();
   });
@@ -785,42 +821,318 @@ function shouldUseAggressiveVideoDefaults(videoInfo) {
   return memory <= 4 || cores <= 4 || (videoInfo?.score || 0) >= 180;
 }
 
+function getRequestedRecorderMode() {
+  return normalizeRecorderCaptureMode(elements.recordCaptureModeInput.value);
+}
+
+function normalizeRecorderCaptureMode(mode) {
+  if (mode === "camera" && canRecordCameraCapture()) {
+    return "camera";
+  }
+
+  if (mode === "screen" && canRecordScreenCapture()) {
+    return "screen";
+  }
+
+  if (canRecordScreenCapture()) {
+    return "screen";
+  }
+
+  if (canRecordCameraCapture()) {
+    return "camera";
+  }
+
+  return mode === "camera" ? "camera" : "screen";
+}
+
+function getRequestedRecorderAudioMode() {
+  return normalizeRecorderAudioMode(
+    elements.recordAudioModeInput.value,
+    getRequestedRecorderMode(),
+  );
+}
+
+function normalizeRecorderAudioMode(mode, captureMode = getRequestedRecorderMode()) {
+  const normalizedMode =
+    mode === "none" ||
+    mode === "system" ||
+    mode === "system-microphone" ||
+    mode === "microphone"
+      ? mode
+      : "microphone";
+
+  if (captureMode === "camera" && normalizedMode !== "none" && normalizedMode !== "microphone") {
+    return "microphone";
+  }
+
+  return normalizedMode;
+}
+
+function canRecordScreenCapture() {
+  return Boolean(navigator.mediaDevices?.getDisplayMedia && typeof MediaRecorder !== "undefined");
+}
+
+function canRecordCameraCapture() {
+  return Boolean(navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined");
+}
+
+function canUseRecorder() {
+  return canRecordScreenCapture() || canRecordCameraCapture();
+}
+
+function canRecordSelectedRecorderMode() {
+  return getRequestedRecorderMode() === "camera"
+    ? canRecordCameraCapture()
+    : canRecordScreenCapture();
+}
+
+function isRecorderModeSupported(mode) {
+  switch (mode) {
+    case "camera":
+      return canRecordCameraCapture();
+    case "screen":
+      return canRecordScreenCapture();
+    case "screen-camera":
+    default:
+      return false;
+  }
+}
+
+function isRecorderAudioModeSupported(mode, captureMode = getRequestedRecorderMode()) {
+  if (!["none", "microphone", "system", "system-microphone"].includes(mode)) {
+    return false;
+  }
+
+  if (captureMode === "camera") {
+    return mode === "none" || mode === "microphone";
+  }
+
+  return true;
+}
+
+function getRecorderModeLabel(mode) {
+  switch (mode) {
+    case "camera":
+      return "Only Camera";
+    case "screen-camera":
+      return "Screen + Camera";
+    case "screen":
+    default:
+      return "Only Screen";
+  }
+}
+
+function getRecorderAudioLabel(mode) {
+  switch (mode) {
+    case "none":
+      return "No audio";
+    case "system":
+      return "System audio only";
+    case "system-microphone":
+      return "System audio and microphone";
+    case "microphone":
+    default:
+      return "Microphone audio";
+  }
+}
+
+function buildRecorderHint(captureMode, selectedFormat, audioMode) {
+  const notes = [];
+
+  if (captureMode === "screen") {
+    notes.push(
+      "Choose Entire screen in the share prompt if you want app switching to stay in the recording.",
+    );
+  } else {
+    notes.push("The browser will ask for camera permission when you start.");
+  }
+
+  if (audioMode === "microphone" || audioMode === "system-microphone") {
+    notes.push("Microphone permission may be requested too.");
+  }
+
+  if (selectedFormat?.needsTranscode) {
+    notes.push("If MP4 is not available directly, the app will finish the MP4 after recording stops.");
+  } else {
+    notes.push("The recording stays on this device and will appear in the downloads area.");
+  }
+
+  return notes.join(" ");
+}
+
+function applyRecorderChoiceState(group, attributeName, selectedValue, disabledValues) {
+  for (const button of group.querySelectorAll("button")) {
+    const optionValue = button.dataset[attributeName];
+    const isActive = optionValue === selectedValue;
+    const isDisabled = disabledValues.has(optionValue);
+    button.classList.toggle("is-active", isActive);
+    button.classList.toggle("is-disabled", isDisabled);
+    button.setAttribute("aria-pressed", String(isActive));
+    button.disabled = isDisabled;
+  }
+}
+
+function renderRecorderControls() {
+  const requestedMode = getRequestedRecorderMode();
+
+  if (elements.recordCaptureModeInput.value !== requestedMode) {
+    elements.recordCaptureModeInput.value = requestedMode;
+  }
+
+  const audioMode = getRequestedRecorderAudioMode();
+
+  if (elements.recordAudioModeInput.value !== audioMode) {
+    elements.recordAudioModeInput.value = audioMode;
+  }
+
+  const locked = isWorkspaceLocked();
+  const recorderBusy = state.busy || state.recording.active || state.recording.processing;
+  const captureDisabled = new Set();
+
+  for (const button of elements.recordCaptureModeGroup.querySelectorAll("button")) {
+    const mode = button.dataset.recordMode;
+    const comingSoon = button.dataset.comingSoon === "true";
+
+    if (comingSoon || !isRecorderModeSupported(mode) || locked || recorderBusy) {
+      captureDisabled.add(mode);
+    }
+  }
+
+  const audioDisabled = new Set();
+
+  for (const button of elements.recordAudioModeGroup.querySelectorAll("button")) {
+    const audioOption = button.dataset.recordAudio;
+
+    if (
+      !isRecorderAudioModeSupported(audioOption, requestedMode) ||
+      locked ||
+      recorderBusy ||
+      !canRecordSelectedRecorderMode()
+    ) {
+      audioDisabled.add(audioOption);
+    }
+  }
+
+  applyRecorderChoiceState(
+    elements.recordCaptureModeGroup,
+    "recordMode",
+    requestedMode,
+    captureDisabled,
+  );
+  applyRecorderChoiceState(
+    elements.recordAudioModeGroup,
+    "recordAudio",
+    audioMode,
+    audioDisabled,
+  );
+
+  elements.recordSurfaceField.hidden = requestedMode !== "screen";
+  elements.recorderHint.textContent = buildRecorderHint(
+    requestedMode,
+    getSelectedRecorderFormat(),
+    audioMode,
+  );
+}
+
+function setRecorderCaptureMode(mode) {
+  const nextMode = normalizeRecorderCaptureMode(mode);
+
+  if (mode === "screen-camera" || !isRecorderModeSupported(nextMode)) {
+    return;
+  }
+
+  elements.recordCaptureModeInput.value = nextMode;
+  renderRecorderControls();
+  renderRecorderWarning();
+  syncControlAvailability();
+}
+
+function setRecorderAudioMode(mode) {
+  const nextMode = normalizeRecorderAudioMode(mode, getRequestedRecorderMode());
+
+  if (!isRecorderAudioModeSupported(nextMode, getRequestedRecorderMode())) {
+    return;
+  }
+
+  elements.recordAudioModeInput.value = nextMode;
+  renderRecorderControls();
+  renderRecorderWarning();
+  syncControlAvailability();
+}
+
 function renderRecorderWarning(options = {}) {
   const preserveStatus = options.preserveStatus === true;
-  const available = canScreenRecord();
+  const captureMode = getRequestedRecorderMode();
+  const available = canRecordSelectedRecorderMode();
   const selectedFormat = getSelectedRecorderFormat();
 
   if (!available || !selectedFormat) {
     elements.recorderWarning.hidden = false;
     elements.recorderWarning.textContent =
-      "Screen recording is not fully supported in this browser.";
+      captureMode === "camera"
+        ? "Camera recording is not fully supported in this browser."
+        : "Screen recording is not fully supported in this browser.";
     if (!isRecorderBusy() && !preserveStatus) {
-      setRecorderStatus("Screen recording is not available in this browser.", true);
+      setRecorderStatus(
+        captureMode === "camera"
+          ? "Camera recording is not available in this browser."
+          : "Screen recording is not available in this browser.",
+        true,
+      );
       elements.recorderOutputMeta.textContent =
-        "Try Chrome, Edge, or Firefox for the best recording support.";
+        captureMode === "camera"
+          ? "Try Chrome, Edge, or Firefox for the best camera recording support."
+          : "Try Chrome, Edge, or Firefox for the best recording support.";
     }
     return;
   }
 
+  const settings = getRecorderSettings();
   const qualityLabel =
     elements.recordQualitySelect.selectedOptions[0]?.textContent ||
     elements.recordQualitySelect.value;
+  const surface = settings.captureSurface;
+  const surfaceLabel =
+    elements.recordSurfaceSelect.selectedOptions[0]?.textContent ||
+    getRecorderSurfaceLabel(surface);
   const widthLabel =
     elements.recordWidthSelect.selectedOptions[0]?.textContent ||
     (elements.recordWidthSelect.value === "original"
       ? "original width"
       : `${elements.recordWidthSelect.value}px max width`);
   const notes = [
+    `Capture mode: ${getRecorderModeLabel(captureMode)}.`,
     `Saving as ${selectedFormat.label}.`,
     `${widthLabel} at ${elements.recordFpsSelect.value} FPS with ${qualityLabel}.`,
+    `Audio: ${getRecorderAudioLabel(settings.audioMode)}.`,
   ];
+
+  if (captureMode === "screen") {
+    notes.unshift(`Capture source: ${surfaceLabel}.`);
+
+    if (surface === "screen") {
+      notes.push(
+        "Choose Entire screen in the browser prompt if you want app switching to stay in the recording.",
+      );
+    } else if (surface === "window") {
+      notes.push("Only the selected app window will be recorded.");
+    } else {
+      notes.push("Only the selected browser tab will be recorded.");
+    }
+  } else {
+    notes.push("The browser will ask for camera access when you start recording.");
+  }
 
   if (selectedFormat.needsTranscode) {
     notes.push("This browser will record first, then finish the MP4 after you stop.");
   }
 
-  if (elements.recordAudioCheckbox.checked) {
-    notes.push("Audio depends on what the browser lets the app capture.");
+  if (settings.requestSystemAudio) {
+    notes.push("System audio depends on what the browser lets the app capture.");
+  }
+
+  if (settings.requestMicrophone) {
+    notes.push("Microphone access may be requested before the recording starts.");
   }
 
   elements.recorderWarning.hidden = false;
@@ -897,33 +1209,27 @@ async function startScreenRecording() {
 
   const selectedFormat = getSelectedRecorderFormat();
 
-  if (!canScreenRecord() || !selectedFormat) {
+  if (!canRecordSelectedRecorderMode() || !selectedFormat) {
     renderRecorderWarning();
     return;
   }
 
   const settings = getRecorderSettings();
-  const displayOptions = buildDisplayMediaOptions(settings);
 
   if (selectedFormat.needsTranscode) {
     void loadFfmpeg({ quiet: true }).catch(() => {});
   }
 
+  let captureSession = null;
+
   try {
-    const stream = await navigator.mediaDevices.getDisplayMedia(displayOptions);
-    const videoTrack = stream.getVideoTracks()[0];
-
-    if (!videoTrack) {
-      stream.getTracks().forEach((track) => track.stop());
-      throw new Error("The browser did not provide a screen video track.");
-    }
-
-    await applyPreferredTrackConstraints(videoTrack, settings);
+    captureSession = await createRecorderCaptureSession(settings);
+    const stream = captureSession.stream;
 
     const mediaRecorder = new MediaRecorder(stream, {
       mimeType: selectedFormat.captureMimeType,
       videoBitsPerSecond: settings.videoBitsPerSecond,
-      ...(settings.includeAudio ? { audioBitsPerSecond: settings.audioBitsPerSecond } : {}),
+      ...(captureSession.hasAudio ? { audioBitsPerSecond: settings.audioBitsPerSecond } : {}),
     });
 
     clearDownloads();
@@ -933,18 +1239,26 @@ async function startScreenRecording() {
     state.recording.processing = false;
     state.recording.stopRequested = false;
     state.recording.stream = stream;
+    state.recording.sourceStreams = captureSession.sourceStreams;
+    state.recording.audioContext = captureSession.audioContext;
     state.recording.mediaRecorder = mediaRecorder;
     state.recording.chunks = [];
     state.recording.startedAt = Date.now();
+    state.recording.captureMode = settings.captureMode;
+    state.recording.audioMode = settings.audioMode;
     state.recording.desiredFormat = selectedFormat.id;
     state.recording.captureMimeType = selectedFormat.captureMimeType;
-    state.recording.fileBaseName = buildRecordingFileBaseName();
+    state.recording.captureSurface = captureSession.captureSurface;
+    state.recording.fileBaseName = captureSession.fileBaseName;
 
     state.currentJob = {
       id: createJobId(),
       presetKey: "screenRecorder",
-      presetLabel: SPECIAL_PRESET_LABELS.screenRecorder,
-      inputNames: ["display capture"],
+      presetLabel:
+        settings.captureMode === "camera"
+          ? SPECIAL_PRESET_LABELS.cameraRecorder
+          : SPECIAL_PRESET_LABELS.screenRecorder,
+      inputNames: captureSession.inputNames,
       inputBytes: 0,
       startedAt: state.recording.startedAt,
     };
@@ -957,8 +1271,9 @@ async function startScreenRecording() {
 
     mediaRecorder.addEventListener("stop", () => {
       void finalizeRecordingOutput({
+        captureMode: settings.captureMode,
         desiredFormat: selectedFormat.id,
-        includeAudio: settings.includeAudio,
+        includeAudio: captureSession.hasAudio,
         quality: settings.quality,
         width: settings.maxWidth,
         fps: settings.fps,
@@ -980,23 +1295,55 @@ async function startScreenRecording() {
 
     mediaRecorder.start(1000);
     startRecorderTimer();
-    setRecorderStatus(`Recording ${selectedFormat.label}`);
-    elements.recorderOutputMeta.textContent =
-      "Screen recording is live. Stop the capture when you are ready to save it.";
+    setRecorderStatus(
+      `Recording ${selectedFormat.label} - ${captureSession.captureLabel}`,
+    );
+    elements.recorderOutputMeta.textContent = [
+      captureSession.liveMessage,
+      captureSession.audioNote,
+    ]
+      .filter(Boolean)
+      .join(" ");
     syncControlAvailability();
   } catch (error) {
-    if (error instanceof DOMException && error.name === "NotAllowedError") {
+    if (captureSession) {
+      const seenTracks = new Set();
+      const sessionStreams = [captureSession.stream, ...(captureSession.sourceStreams || [])].filter(Boolean);
+
+      for (const stream of sessionStreams) {
+        for (const track of stream.getTracks()) {
+          if (seenTracks.has(track)) {
+            continue;
+          }
+
+          seenTracks.add(track);
+          track.stop();
+        }
+      }
+
+      if (captureSession.audioContext) {
+        void captureSession.audioContext.close().catch(() => {});
+      }
+    }
+
+    if (error instanceof DOMException && error.name === "NotAllowedError" && settings.captureMode === "screen") {
       setRecorderStatus("Screen selection was cancelled.", true);
       elements.recorderOutputMeta.textContent =
-        "Choose a screen, window, or tab when you are ready to capture.";
+        "Choose a screen, window, or tab when you are ready to capture. Pick Entire screen if you want app switching to stay visible.";
       return;
     }
 
     const message =
-      error instanceof Error ? error.message : "Could not start screen capture.";
+      error instanceof Error
+        ? error.message
+        : settings.captureMode === "camera"
+          ? "Could not start camera capture."
+          : "Could not start screen capture.";
     setRecorderStatus(message, true);
     elements.recorderOutputMeta.textContent =
-      "Screen recording could not be started in this browser session.";
+      settings.captureMode === "camera"
+        ? "Camera recording could not be started in this browser session."
+        : "Screen recording could not be started in this browser session.";
   }
 }
 
@@ -1054,7 +1401,7 @@ async function finalizeRecordingOutput(session) {
     if (session.desiredFormat === "mp4" && !mimeType.startsWith("video/mp4")) {
       setRecorderStatus("Converting recording to MP4...");
       outputs = await transcodeRecordedBlobToMp4(recordedBlob, session);
-      note = "Screen recording captured and converted to MP4.";
+      note = "Recording captured and converted to MP4.";
     } else {
       const extension = session.desiredFormat === "mp4" ? "mp4" : "webm";
       const finalBlob =
@@ -1064,10 +1411,10 @@ async function finalizeRecordingOutput(session) {
       const result = addDownload({
         name: `${session.fileBaseName}.${extension}`,
         blob: finalBlob,
-        caption: `Screen recording exported as ${extension.toUpperCase()}.`,
+        caption: `Recording exported as ${extension.toUpperCase()}.`,
       });
       outputs = [result];
-      note = `Screen recording exported as ${extension.toUpperCase()}.`;
+      note = `Recording exported as ${extension.toUpperCase()}.`;
       setRecorderPreview(finalBlob);
     }
 
@@ -1081,17 +1428,22 @@ async function finalizeRecordingOutput(session) {
     finalizeJob("success", outputs, note);
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Screen recording could not be exported.";
+      error instanceof Error ? error.message : "Recording could not be exported.";
     await failRecordingJob(message);
   } finally {
     state.recording.processing = false;
     state.recording.stopRequested = false;
     state.recording.mediaRecorder = null;
     state.recording.stream = null;
+    state.recording.sourceStreams = [];
+    state.recording.audioContext = null;
     state.recording.chunks = [];
     state.recording.startedAt = 0;
+    state.recording.captureMode = "";
+    state.recording.audioMode = "";
     state.recording.captureMimeType = "";
     state.recording.desiredFormat = "";
+    state.recording.captureSurface = "";
     state.recording.fileBaseName = "";
     renderRecorderTimer();
     renderRecorderWarning({ preserveStatus: true });
@@ -1107,10 +1459,15 @@ async function failRecordingJob(message) {
   state.recording.stopRequested = false;
   state.recording.mediaRecorder = null;
   state.recording.stream = null;
+  state.recording.sourceStreams = [];
+  state.recording.audioContext = null;
   state.recording.chunks = [];
   state.recording.startedAt = 0;
+  state.recording.captureMode = "";
+  state.recording.audioMode = "";
   state.recording.captureMimeType = "";
   state.recording.desiredFormat = "";
+  state.recording.captureSurface = "";
   state.recording.fileBaseName = "";
   setRecorderStatus(message, true);
   elements.recorderOutputMeta.textContent =
@@ -1121,13 +1478,26 @@ async function failRecordingJob(message) {
 }
 
 function stopRecorderTracks() {
-  if (!state.recording.stream) {
-    return;
+  const streams = [state.recording.stream, ...(state.recording.sourceStreams || [])].filter(Boolean);
+  const seenTracks = new Set();
+
+  for (const stream of streams) {
+    for (const track of stream.getTracks()) {
+      if (seenTracks.has(track)) {
+        continue;
+      }
+
+      seenTracks.add(track);
+      track.stop();
+    }
   }
 
-  for (const track of state.recording.stream.getTracks()) {
-    track.stop();
+  if (state.recording.audioContext) {
+    void state.recording.audioContext.close().catch(() => {});
   }
+
+  state.recording.sourceStreams = [];
+  state.recording.audioContext = null;
 }
 
 async function runConversion() {
@@ -1138,7 +1508,7 @@ async function runConversion() {
   }
 
   if (isRecorderBusy()) {
-    setStatus("Finish the current screen recording before starting a conversion.", true);
+    setStatus("Finish the current recording before starting a conversion.", true);
     return;
   }
 
@@ -1331,7 +1701,7 @@ function buildVideoFilters() {
 }
 
 function getRecorderFormatOptions() {
-  if (!canScreenRecord()) {
+  if (!canUseRecorder()) {
     return [];
   }
 
@@ -1385,11 +1755,21 @@ function getSelectedRecorderFormat() {
 }
 
 function getRecorderSettings() {
+  const captureMode = getRequestedRecorderMode();
+  const audioMode = getRequestedRecorderAudioMode();
+
   return {
+    captureMode,
+    captureSurface: captureMode === "screen" ? getRequestedRecorderSurface() : "camera",
+    audioMode,
     quality: elements.recordQualitySelect.value,
     maxWidth: elements.recordWidthSelect.value,
     fps: elements.recordFpsSelect.value,
-    includeAudio: elements.recordAudioCheckbox.checked,
+    includeAudio: audioMode !== "none",
+    requestMicrophone: audioMode === "microphone" || audioMode === "system-microphone",
+    requestSystemAudio:
+      captureMode === "screen" &&
+      (audioMode === "system" || audioMode === "system-microphone"),
     videoBitsPerSecond: computeRecorderVideoBitrate(
       elements.recordQualitySelect.value,
       elements.recordWidthSelect.value,
@@ -1418,7 +1798,54 @@ function computeRecorderVideoBitrate(quality, maxWidth, fps) {
   return Math.round(bitrate);
 }
 
-function buildDisplayMediaOptions(settings) {
+function getRequestedRecorderSurface() {
+  return elements.recordSurfaceSelect.value || "screen";
+}
+
+function getRecorderSurfaceLabel(surface) {
+  switch (surface) {
+    case "window":
+      return "App window";
+    case "browser":
+      return "Browser tab";
+    case "screen":
+    default:
+      return "Entire screen";
+  }
+}
+
+function getCapturedRecorderSurface(track, requestedSurface) {
+  const capturedSurface = track.getSettings?.().displaySurface;
+
+  switch (capturedSurface) {
+    case "monitor":
+      return "screen";
+    case "window":
+      return "window";
+    case "browser":
+      return "browser";
+    default:
+      return requestedSurface || "screen";
+  }
+}
+
+function getActiveRecorderSurfaceMessage(requestedSurface, actualSurface) {
+  if (actualSurface === "screen") {
+    return "Whole screen recording is live. Changing apps or windows will stay in the capture.";
+  }
+
+  if (requestedSurface === "screen") {
+    return `The browser started recording a ${getRecorderSurfaceLabel(actualSurface).toLowerCase()} instead of the whole screen. If you want app switching captured, choose Entire screen in the share prompt.`;
+  }
+
+  if (actualSurface === "window") {
+    return "Only the selected app window is being recorded.";
+  }
+
+  return "Only the selected browser tab is being recorded.";
+}
+
+function buildDisplayMediaOptions(settings, mode = "advanced") {
   const video = {
     frameRate: {
       ideal: Number(settings.fps),
@@ -1433,11 +1860,314 @@ function buildDisplayMediaOptions(settings) {
     };
   }
 
-  return {
+  const options = {
     video,
-    audio: settings.includeAudio,
-    preferCurrentTab: true,
+    audio: settings.requestSystemAudio,
   };
+
+  if (mode !== "advanced") {
+    return options;
+  }
+
+  if (settings.captureSurface === "screen") {
+    video.displaySurface = "monitor";
+    options.monitorTypeSurfaces = "include";
+    options.surfaceSwitching = "include";
+    options.selfBrowserSurface = "exclude";
+  } else if (settings.captureSurface === "window") {
+    video.displaySurface = "window";
+    options.monitorTypeSurfaces = "exclude";
+    options.surfaceSwitching = "exclude";
+    options.selfBrowserSurface = "exclude";
+    options.windowAudio = settings.requestSystemAudio ? "window" : "exclude";
+  } else {
+    video.displaySurface = "browser";
+    options.preferCurrentTab = true;
+    options.surfaceSwitching = "include";
+    options.selfBrowserSurface = "include";
+  }
+
+  if (settings.requestSystemAudio) {
+    options.systemAudio = "include";
+  }
+
+  return options;
+}
+
+function getDisplayMediaOptionSets(settings) {
+  return [
+    buildDisplayMediaOptions(settings, "advanced"),
+    buildDisplayMediaOptions(settings, "basic"),
+  ];
+}
+
+async function requestDisplayStream(settings) {
+  let lastError = null;
+
+  for (const displayOptions of getDisplayMediaOptionSets(settings)) {
+    try {
+      return await navigator.mediaDevices.getDisplayMedia(displayOptions);
+    } catch (error) {
+      lastError = error;
+
+      if (!shouldRetryDisplayCapture(error)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError || new Error("Could not start screen capture.");
+}
+
+async function requestMicrophoneStream() {
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+      video: false,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "NotAllowedError") {
+      throw new Error("Microphone access was blocked or cancelled.");
+    }
+
+    if (error instanceof DOMException && error.name === "NotFoundError") {
+      throw new Error("No microphone was found on this device.");
+    }
+
+    throw error;
+  }
+}
+
+async function requestCameraStream(settings) {
+  const video = {
+    frameRate: {
+      ideal: Number(settings.fps),
+      max: Number(settings.fps),
+    },
+  };
+
+  if (settings.maxWidth !== "original") {
+    video.width = {
+      ideal: Number(settings.maxWidth),
+      max: Number(settings.maxWidth),
+    };
+  }
+
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      video,
+      audio: settings.requestMicrophone
+        ? {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          }
+        : false,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "NotAllowedError") {
+      throw new Error("Camera access was blocked or cancelled.");
+    }
+
+    if (error instanceof DOMException && error.name === "NotFoundError") {
+      throw new Error("No camera was found on this device.");
+    }
+
+    throw error;
+  }
+}
+
+async function mixRecorderAudioStreams(streams) {
+  const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+  const fallbackTracks = streams.flatMap((stream) => stream.getAudioTracks()).filter(Boolean);
+
+  if (!AudioContextConstructor) {
+    return {
+      tracks: fallbackTracks.slice(0, 1),
+      audioContext: null,
+      note:
+        fallbackTracks.length > 1
+          ? "This browser could not mix system and microphone audio together, so only one audio track was kept."
+          : "",
+    };
+  }
+
+  const audioContext = new AudioContextConstructor();
+  const destination = audioContext.createMediaStreamDestination();
+
+  try {
+    if (audioContext.state === "suspended") {
+      await audioContext.resume();
+    }
+  } catch {
+    // Some browsers block resume until the graph is used. Recording can still continue.
+  }
+
+  for (const stream of streams) {
+    const audioTracks = stream.getAudioTracks();
+
+    if (audioTracks.length === 0) {
+      continue;
+    }
+
+    const sourceStream = new MediaStream(audioTracks);
+    const source = audioContext.createMediaStreamSource(sourceStream);
+    const gain = audioContext.createGain();
+    gain.gain.value = 1;
+    source.connect(gain);
+    gain.connect(destination);
+  }
+
+  const mixedTracks = destination.stream.getAudioTracks();
+
+  return {
+    tracks: mixedTracks.length > 0 ? mixedTracks : fallbackTracks.slice(0, 1),
+    audioContext,
+    note:
+      mixedTracks.length === 0 && fallbackTracks.length > 1
+        ? "The browser could not mix system and microphone audio together, so only one audio track was kept."
+        : "",
+  };
+}
+
+async function createScreenCaptureSession(settings) {
+  const displayStream = await requestDisplayStream(settings);
+  const sourceStreams = [displayStream];
+  let audioContext = null;
+
+  try {
+    const videoTrack = displayStream.getVideoTracks()[0];
+
+    if (!videoTrack) {
+      throw new Error("The browser did not provide a screen video track.");
+    }
+
+    await applyPreferredTrackConstraints(videoTrack, settings);
+    const actualSurface = getCapturedRecorderSurface(videoTrack, settings.captureSurface);
+    let audioTracks = [];
+    let audioNote = "";
+
+    if (settings.audioMode === "system") {
+      audioTracks = displayStream.getAudioTracks();
+      if (audioTracks.length === 0) {
+        audioNote = "System audio was not shared in the browser picker, so this recording will be video only.";
+      }
+    } else if (settings.audioMode === "microphone") {
+      const microphoneStream = await requestMicrophoneStream();
+      sourceStreams.push(microphoneStream);
+      audioTracks = microphoneStream.getAudioTracks();
+    } else if (settings.audioMode === "system-microphone") {
+      const microphoneStream = await requestMicrophoneStream();
+      sourceStreams.push(microphoneStream);
+
+      const systemTracks = displayStream.getAudioTracks();
+      const microphoneTracks = microphoneStream.getAudioTracks();
+
+      if (systemTracks.length > 0 && microphoneTracks.length > 0) {
+        const mixedAudio = await mixRecorderAudioStreams([displayStream, microphoneStream]);
+        audioTracks = mixedAudio.tracks;
+        audioContext = mixedAudio.audioContext;
+        audioNote = mixedAudio.note;
+      } else if (microphoneTracks.length > 0) {
+        audioTracks = microphoneTracks;
+        audioNote = "System audio was not shared in the browser picker, so the recording is using microphone audio only.";
+      } else if (systemTracks.length > 0) {
+        audioTracks = systemTracks;
+        audioNote = "Microphone audio was not available, so the recording is using system audio only.";
+      }
+    }
+
+    const recorderStream = new MediaStream([videoTrack, ...audioTracks]);
+
+    return {
+      stream: recorderStream,
+      sourceStreams,
+      audioContext,
+      captureSurface: actualSurface,
+      captureLabel: getRecorderSurfaceLabel(actualSurface),
+      liveMessage: getActiveRecorderSurfaceMessage(settings.captureSurface, actualSurface),
+      audioNote,
+      inputNames: [`${getRecorderSurfaceLabel(actualSurface)} capture`],
+      fileBaseName: buildRecordingFileBaseName("screen"),
+      hasAudio: audioTracks.length > 0,
+    };
+  } catch (error) {
+    const seenTracks = new Set();
+
+    for (const stream of sourceStreams) {
+      for (const track of stream.getTracks()) {
+        if (seenTracks.has(track)) {
+          continue;
+        }
+
+        seenTracks.add(track);
+        track.stop();
+      }
+    }
+
+    if (audioContext) {
+      void audioContext.close().catch(() => {});
+    }
+
+    throw error;
+  }
+}
+
+async function createCameraCaptureSession(settings) {
+  const cameraStream = await requestCameraStream(settings);
+  const videoTrack = cameraStream.getVideoTracks()[0];
+
+  if (!videoTrack) {
+    for (const track of cameraStream.getTracks()) {
+      track.stop();
+    }
+
+    throw new Error("The browser did not provide a camera video track.");
+  }
+
+  await applyPreferredTrackConstraints(videoTrack, settings);
+  const audioTracks = cameraStream.getAudioTracks();
+  const recorderStream = new MediaStream([videoTrack, ...audioTracks]);
+  const liveMessage =
+    settings.audioMode === "microphone"
+      ? "Camera recording is live with microphone audio."
+      : "Camera recording is live.";
+
+  return {
+    stream: recorderStream,
+    sourceStreams: [cameraStream],
+    audioContext: null,
+    captureSurface: "camera",
+    captureLabel: "Camera",
+    liveMessage,
+    audioNote: "",
+    inputNames: ["Camera capture"],
+    fileBaseName: buildRecordingFileBaseName("camera"),
+    hasAudio: audioTracks.length > 0,
+  };
+}
+
+async function createRecorderCaptureSession(settings) {
+  if (settings.captureMode === "camera") {
+    return createCameraCaptureSession(settings);
+  }
+
+  return createScreenCaptureSession(settings);
+}
+
+function shouldRetryDisplayCapture(error) {
+  if (error instanceof TypeError) {
+    return true;
+  }
+
+  return Boolean(
+    error instanceof DOMException &&
+      (error.name === "OverconstrainedError" || error.name === "ConstraintNotSatisfiedError"),
+  );
 }
 
 async function applyPreferredTrackConstraints(track, settings) {
@@ -1472,17 +2202,11 @@ function pickSupportedMimeType(candidates) {
   return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate)) || "";
 }
 
-function canScreenRecord() {
-  return Boolean(
-    navigator.mediaDevices?.getDisplayMedia && typeof MediaRecorder !== "undefined",
-  );
-}
-
 function isRecorderBusy() {
   return state.recording.active || state.recording.processing;
 }
 
-function buildRecordingFileBaseName() {
+function buildRecordingFileBaseName(kind = "screen") {
   const now = new Date();
   const parts = [
     now.getFullYear(),
@@ -1493,7 +2217,7 @@ function buildRecordingFileBaseName() {
     String(now.getMinutes()).padStart(2, "0"),
     String(now.getSeconds()).padStart(2, "0"),
   ];
-  return `screen-recording-${parts.join("")}`;
+  return `${kind === "camera" ? "camera" : "screen"}-recording-${parts.join("")}`;
 }
 
 function mimeTypeToExtension(mimeType) {
@@ -1558,7 +2282,7 @@ async function transcodeRecordedBlobToMp4(blob, session) {
     const result = addDownload({
       name: outputName,
       blob: mp4Blob,
-      caption: "Screen recording converted to MP4.",
+      caption: "Recording converted to MP4.",
     });
     setRecorderPreview(mp4Blob);
     return [result];
@@ -2522,7 +3246,7 @@ function syncControlAvailability() {
   const locked = isWorkspaceLocked();
   const recorderBusy = isRecorderBusy();
   const disabled = state.busy || locked || recorderBusy;
-  const recorderUnavailable = !canScreenRecord() || state.recorderFormats.length === 0;
+  const recorderUnavailable = !canRecordSelectedRecorderMode() || state.recorderFormats.length === 0;
 
   elements.presetSelect.disabled = disabled;
   elements.dropZone.disabled = disabled;
@@ -2556,13 +3280,18 @@ function syncControlAvailability() {
   elements.cancelButton.disabled = !state.busy || !preset.usesFfmpeg;
   elements.recordFormatSelect.disabled =
     locked || state.busy || state.recording.active || state.recording.processing || recorderUnavailable;
+  elements.recordSurfaceSelect.disabled =
+    getRequestedRecorderMode() !== "screen" ||
+    locked ||
+    state.busy ||
+    state.recording.active ||
+    state.recording.processing ||
+    recorderUnavailable;
   elements.recordQualitySelect.disabled =
     locked || state.busy || state.recording.active || state.recording.processing || recorderUnavailable;
   elements.recordWidthSelect.disabled =
     locked || state.busy || state.recording.active || state.recording.processing || recorderUnavailable;
   elements.recordFpsSelect.disabled =
-    locked || state.busy || state.recording.active || state.recording.processing || recorderUnavailable;
-  elements.recordAudioCheckbox.disabled =
     locked || state.busy || state.recording.active || state.recording.processing || recorderUnavailable;
   elements.startRecordingButton.disabled =
     locked || state.busy || state.recording.active || state.recording.processing || recorderUnavailable;
@@ -2576,6 +3305,7 @@ function syncControlAvailability() {
     state.busy || recorderBusy || !state.profile.pinHash || isWorkspaceLocked();
   elements.removePinButton.disabled =
     state.busy || recorderBusy || !state.profile.pinHash || isWorkspaceLocked();
+  renderRecorderControls();
 }
 
 function setStatus(message, isError = false) {

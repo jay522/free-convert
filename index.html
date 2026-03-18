@@ -314,15 +314,117 @@
           </p>
 
           <details class="simple-details">
-            <summary>Use the screen recorder</summary>
+            <summary>Use the recorder</summary>
             <div class="simple-details-body">
               <div class="recorder-grid">
                 <div class="detail-card recorder-controls">
-                  <h3 id="recorder-title">Record your screen</h3>
+                  <h3 id="recorder-title">Record your screen or camera</h3>
+                  <div class="recorder-choice-section">
+                    <p class="panel-kicker">What do you want to capture?</p>
+                    <input id="recordCaptureModeInput" type="hidden" value="screen" />
+                    <div
+                      class="recorder-choice-grid"
+                      id="recordCaptureModeGroup"
+                      role="group"
+                      aria-label="Choose what to capture"
+                    >
+                      <button
+                        class="recorder-choice-card is-active"
+                        id="recordCaptureScreenButton"
+                        type="button"
+                        data-record-mode="screen"
+                        aria-pressed="true"
+                      >
+                        <strong>Only Screen</strong>
+                        <span>Record your full screen, one app window, or one browser tab.</span>
+                      </button>
+                      <button
+                        class="recorder-choice-card is-disabled"
+                        id="recordCaptureScreenCameraButton"
+                        type="button"
+                        data-record-mode="screen-camera"
+                        data-coming-soon="true"
+                        aria-pressed="false"
+                        disabled
+                      >
+                        <strong>Screen + Camera</strong>
+                        <span>Keep the screen full size with your camera in a small corner overlay.</span>
+                        <small>Coming soon</small>
+                      </button>
+                      <button
+                        class="recorder-choice-card"
+                        id="recordCaptureCameraButton"
+                        type="button"
+                        data-record-mode="camera"
+                        aria-pressed="false"
+                      >
+                        <strong>Only Camera</strong>
+                        <span>Record your webcam with the same quality and format settings.</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="recorder-choice-section">
+                    <p class="panel-kicker">Record audio?</p>
+                    <input id="recordAudioModeInput" type="hidden" value="microphone" />
+                    <div
+                      class="recorder-choice-grid recorder-audio-grid"
+                      id="recordAudioModeGroup"
+                      role="group"
+                      aria-label="Choose audio source"
+                    >
+                      <button
+                        class="recorder-choice-card"
+                        type="button"
+                        data-record-audio="none"
+                        aria-pressed="false"
+                      >
+                        <strong>None</strong>
+                        <span>Video only</span>
+                      </button>
+                      <button
+                        class="recorder-choice-card is-active"
+                        type="button"
+                        data-record-audio="microphone"
+                        aria-pressed="true"
+                      >
+                        <strong>Microphone</strong>
+                        <span>Use your mic</span>
+                      </button>
+                      <button
+                        class="recorder-choice-card"
+                        type="button"
+                        data-record-audio="system"
+                        aria-pressed="false"
+                      >
+                        <strong>System</strong>
+                        <span>Computer audio only</span>
+                      </button>
+                      <button
+                        class="recorder-choice-card"
+                        type="button"
+                        data-record-audio="system-microphone"
+                        aria-pressed="false"
+                      >
+                        <strong>System + Mic.</strong>
+                        <span>Computer audio and mic</span>
+                      </button>
+                    </div>
+                  </div>
+
                   <div class="options-grid">
                     <label class="field">
                       <span>Save as</span>
                       <select id="recordFormatSelect"></select>
+                    </label>
+
+                    <label class="field" id="recordSurfaceField">
+                      <span>Record from</span>
+                      <select id="recordSurfaceSelect">
+                        <option value="screen" selected>Entire screen</option>
+                        <option value="window">App window</option>
+                        <option value="browser">Browser tab</option>
+                      </select>
                     </label>
 
                     <label class="field">
@@ -354,11 +456,6 @@
                       </select>
                     </label>
                   </div>
-
-                  <label class="checkbox-field">
-                    <input id="recordAudioCheckbox" type="checkbox" checked />
-                    <span>Try to keep audio in the recording</span>
-                  </label>
 
                   <div class="warning-banner" id="recorderWarning" hidden></div>
                   <p class="helper-text" id="recorderHint">
