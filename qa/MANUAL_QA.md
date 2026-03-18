@@ -21,10 +21,18 @@ Use this checklist when validating free-converter with real files before release
 - Screen recording with `Entire screen` selected while switching between apps or windows
 - Screen recording with `App window` selected and confirm only that window is captured
 - Screen recording with `Browser tab` selected and confirm only that tab is captured
+- Screen recording with optimization `off` and confirm fastest direct save
+- Screen recording with optimization `on` and confirm extra finishing step still produces a downloadable file
 - Screen recording with `compact`, `balanced`, and `crisp` quality
 - Screen recording with `original`, `1280`, and `854` max width options
 - Screen recording with `15`, `24`, `30`, and `60` FPS options
-- Screen recording with and without system/tab audio
+- Screen recording with `None` and `Microphone` audio options
+- Confirm `System` and `System + Mic.` remain disabled in the scre.io-style recorder flow
+- Finish a screen recording and confirm it appears in `Latest videos`
+- Reload the page and confirm the latest saved recording still opens in the video player
+- Download a saved recording again from the video player
+- Delete one saved recording from `Latest videos` and confirm the list and player update correctly
+- Clear all saved recordings and confirm the player and list both reset
 - Camera recording to `webm`
 - Camera recording to `mp4`
 - Camera recording with `None` and `Microphone` audio modes

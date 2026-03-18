@@ -365,6 +365,26 @@
                   </div>
 
                   <div class="recorder-choice-section">
+                    <div class="recorder-section-head">
+                      <div>
+                        <p class="panel-kicker">Recorded video</p>
+                        <p class="helper-text" id="recordOptimizeHint">
+                          Leave optimization off for the fastest save. Turn it on if you want cleaner playback and seeking after recording.
+                        </p>
+                      </div>
+                      <input id="recordOptimizeInput" type="hidden" value="off" />
+                      <button
+                        class="recorder-optimize-button"
+                        id="recordOptimizeButton"
+                        type="button"
+                        aria-pressed="false"
+                      >
+                        Optimize
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="recorder-choice-section">
                     <p class="panel-kicker">Record audio?</p>
                     <input id="recordAudioModeInput" type="hidden" value="microphone" />
                     <div
@@ -396,6 +416,7 @@
                         type="button"
                         data-record-audio="system"
                         aria-pressed="false"
+                        disabled
                       >
                         <strong>System</strong>
                         <span>Computer audio only</span>
@@ -405,6 +426,7 @@
                         type="button"
                         data-record-audio="system-microphone"
                         aria-pressed="false"
+                        disabled
                       >
                         <strong>System + Mic.</strong>
                         <span>Computer audio and mic</span>
@@ -412,50 +434,55 @@
                     </div>
                   </div>
 
-                  <div class="options-grid">
-                    <label class="field">
-                      <span>Save as</span>
-                      <select id="recordFormatSelect"></select>
-                    </label>
+                  <details class="simple-details recorder-advanced" id="recorderAdvancedOptions">
+                    <summary>Open recording settings</summary>
+                    <div class="simple-details-body">
+                      <div class="options-grid">
+                        <label class="field">
+                          <span>Save as</span>
+                          <select id="recordFormatSelect"></select>
+                        </label>
 
-                    <label class="field" id="recordSurfaceField">
-                      <span>Record from</span>
-                      <select id="recordSurfaceSelect">
-                        <option value="screen" selected>Entire screen</option>
-                        <option value="window">App window</option>
-                        <option value="browser">Browser tab</option>
-                      </select>
-                    </label>
+                        <label class="field" id="recordSurfaceField">
+                          <span>Share prompt preference</span>
+                          <select id="recordSurfaceSelect">
+                            <option value="screen" selected>Entire screen</option>
+                            <option value="window">App window</option>
+                            <option value="browser">Browser tab</option>
+                          </select>
+                        </label>
 
-                    <label class="field">
-                      <span>Video quality</span>
-                      <select id="recordQualitySelect">
-                        <option value="crisp">Best quality</option>
-                        <option value="balanced" selected>Recommended</option>
-                        <option value="compact">Smaller file and faster</option>
-                      </select>
-                    </label>
+                        <label class="field">
+                          <span>Video quality</span>
+                          <select id="recordQualitySelect">
+                            <option value="crisp">Best quality</option>
+                            <option value="balanced" selected>Recommended</option>
+                            <option value="compact">Smaller file and faster</option>
+                          </select>
+                        </label>
 
-                    <label class="field">
-                      <span>Size</span>
-                      <select id="recordWidthSelect">
-                        <option value="original">Keep original size</option>
-                        <option value="2560">Large</option>
-                        <option value="1920" selected>Recommended</option>
-                        <option value="1280">Smaller and faster</option>
-                      </select>
-                    </label>
+                        <label class="field">
+                          <span>Size</span>
+                          <select id="recordWidthSelect">
+                            <option value="original">Keep original size</option>
+                            <option value="2560">Large</option>
+                            <option value="1920" selected>Recommended</option>
+                            <option value="1280">Smaller and faster</option>
+                          </select>
+                        </label>
 
-                    <label class="field">
-                      <span>Smoothness</span>
-                      <select id="recordFpsSelect">
-                        <option value="60">Very smooth</option>
-                        <option value="30" selected>Recommended</option>
-                        <option value="24">Standard</option>
-                        <option value="15">Fastest</option>
-                      </select>
-                    </label>
-                  </div>
+                        <label class="field">
+                          <span>Smoothness</span>
+                          <select id="recordFpsSelect">
+                            <option value="60">Very smooth</option>
+                            <option value="30" selected>Recommended</option>
+                            <option value="24">Standard</option>
+                            <option value="15">Fastest</option>
+                          </select>
+                        </label>
+                      </div>
+                    </div>
+                  </details>
 
                   <div class="warning-banner" id="recorderWarning" hidden></div>
                   <p class="helper-text" id="recorderHint">
@@ -473,7 +500,7 @@
                 </div>
 
                 <div class="detail-card recorder-status-card">
-                  <h3>Recording status</h3>
+                  <h3>Video player</h3>
                   <div class="recorder-meta">
                     <div class="stat-card">
                       <span class="stat-label">Status</span>
@@ -485,7 +512,7 @@
                     </div>
                   </div>
                   <p class="helper-text" id="recorderOutputMeta">
-                    Your recording stays on this device and will appear in the downloads area.
+                    Your recording stays on this device and will appear in Latest videos and the downloads area.
                   </p>
                   <video
                     id="recorderPreview"
@@ -494,7 +521,51 @@
                     playsinline
                     hidden
                   ></video>
+                  <div class="recorder-player-copy">
+                    <p class="recorder-player-title" id="recordingPlayerTitle">
+                      No saved recording selected yet.
+                    </p>
+                    <p class="helper-text recorder-player-meta" id="recordingPlayerMeta">
+                      Finish a recording to preview it here and keep it in Latest videos on this device.
+                    </p>
+                  </div>
+                  <div class="button-row recorder-player-actions">
+                    <button
+                      class="secondary-button"
+                      id="downloadRecordingButton"
+                      type="button"
+                      disabled
+                    >
+                      Download selected video
+                    </button>
+                    <button
+                      class="ghost-button"
+                      id="deleteRecordingButton"
+                      type="button"
+                      disabled
+                    >
+                      Remove from latest videos
+                    </button>
+                  </div>
                 </div>
+              </div>
+
+              <div class="detail-card recorder-library-card">
+                <div class="panel-inline-head">
+                  <div>
+                    <p class="panel-kicker">Latest videos</p>
+                    <h3 id="recordings-title">Saved recordings on this device</h3>
+                  </div>
+                  <button class="ghost-button" id="clearRecordingsButton" type="button">
+                    Clear saved videos
+                  </button>
+                </div>
+                <p class="helper-text" id="recordingLibraryHint">
+                  Each finished recording stays in this browser so you can replay, download, or remove it later.
+                </p>
+                <ul class="recording-list" id="recordingList" aria-live="polite">
+                  <li class="history-empty">No saved recordings yet.</li>
+                </ul>
               </div>
             </div>
           </details>

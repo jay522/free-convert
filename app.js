@@ -13,9 +13,13 @@ const STORAGE_KEYS = {
   history: "free-converter-history-v1",
   analytics: "free-converter-analytics-v1",
   profile: "free-converter-profile-v1",
+  recordings: "free-converter-recordings-v1",
 };
 
 const HISTORY_LIMIT = 12;
+const RECORDING_LIBRARY_LIMIT = 12;
+const RECORDING_LIBRARY_DB_NAME = "free-converter-recordings-db-v1";
+const RECORDING_LIBRARY_STORE = "recording-files";
 const SPECIAL_PRESET_LABELS = {
   screenRecorder: "Screen Recorder",
   cameraRecorder: "Camera Recorder",
@@ -141,6 +145,10 @@ const state = {
   history: loadStored(STORAGE_KEYS.history, []),
   analytics: loadStored(STORAGE_KEYS.analytics, createDefaultAnalytics()),
   profile: normalizeProfile(loadStored(STORAGE_KEYS.profile, null)),
+  recordings: normalizeStoredRecordings(loadStored(STORAGE_KEYS.recordings, [])),
+  selectedRecordingId: "",
+  recordingLibraryReady: false,
+  recordingLibraryLoading: false,
   diagnostics: [],
   recorderFormats: [],
   recording: {
@@ -207,6 +215,13 @@ const elements = {
   deviceHint: document.querySelector("#deviceHint"),
   historyList: document.querySelector("#historyList"),
   clearHistoryButton: document.querySelector("#clearHistoryButton"),
+  recordingList: document.querySelector("#recordingList"),
+  recordingLibraryHint: document.querySelector("#recordingLibraryHint"),
+  clearRecordingsButton: document.querySelector("#clearRecordingsButton"),
+  recordingPlayerTitle: document.querySelector("#recordingPlayerTitle"),
+  recordingPlayerMeta: document.querySelector("#recordingPlayerMeta"),
+  downloadRecordingButton: document.querySelector("#downloadRecordingButton"),
+  deleteRecordingButton: document.querySelector("#deleteRecordingButton"),
   profileNameInput: document.querySelector("#profileNameInput"),
   pinInput: document.querySelector("#pinInput"),
   unlockPinInput: document.querySelector("#unlockPinInput"),
@@ -223,9 +238,13 @@ const elements = {
   favoritePreset: document.querySelector("#favoritePreset"),
   recordCaptureModeInput: document.querySelector("#recordCaptureModeInput"),
   recordCaptureModeGroup: document.querySelector("#recordCaptureModeGroup"),
+  recordOptimizeInput: document.querySelector("#recordOptimizeInput"),
+  recordOptimizeButton: document.querySelector("#recordOptimizeButton"),
+  recordOptimizeHint: document.querySelector("#recordOptimizeHint"),
   recordAudioModeInput: document.querySelector("#recordAudioModeInput"),
   recordAudioModeGroup: document.querySelector("#recordAudioModeGroup"),
   recordFormatSelect: document.querySelector("#recordFormatSelect"),
+  recorderAdvancedOptions: document.querySelector("#recorderAdvancedOptions"),
   recordSurfaceField: document.querySelector("#recordSurfaceField"),
   recordSurfaceSelect: document.querySelector("#recordSurfaceSelect"),
   recordQualitySelect: document.querySelector("#recordQualitySelect"),
@@ -240,6 +259,8 @@ const elements = {
   recorderOutputMeta: document.querySelector("#recorderOutputMeta"),
   recorderPreview: document.querySelector("#recorderPreview"),
 };
+
+let recordingLibraryDbPromise = null;
 
 void boot();
 
@@ -257,11 +278,14 @@ async function boot() {
   renderProfile();
   renderAnalytics();
   renderHistory();
+  renderRecordingLibrary();
+  renderRecordingPlayer();
   updateQualityLabels();
   applyPreset(state.presetKey);
   renderRecorderControls();
   renderRecorderWarning();
   renderRecorderTimer();
+  await restoreRecordingLibrary();
   await registerServiceWorker();
   scheduleFfmpegWarmup();
 }
@@ -393,6 +417,27 @@ function bindEvents() {
   elements.lockButton.addEventListener("click", lockWorkspace);
   elements.removePinButton.addEventListener("click", removeWorkspacePin);
   elements.clearHistoryButton.addEventListener("click", clearActivity);
+  elements.recordingList.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element)) {
+      return;
+    }
+
+    const button = event.target.closest("[data-recording-id]");
+    if (!(button instanceof HTMLButtonElement) || button.disabled) {
+      return;
+    }
+
+    void selectRecordingFromLibrary(button.dataset.recordingId);
+  });
+  elements.clearRecordingsButton.addEventListener("click", () => {
+    void clearSavedRecordings();
+  });
+  elements.downloadRecordingButton.addEventListener("click", () => {
+    void downloadSelectedRecording();
+  });
+  elements.deleteRecordingButton.addEventListener("click", () => {
+    void deleteSelectedRecording();
+  });
   elements.recordCaptureModeGroup.addEventListener("click", (event) => {
     if (!(event.target instanceof Element)) {
       return;
@@ -416,6 +461,9 @@ function bindEvents() {
     }
 
     setRecorderAudioMode(button.dataset.recordAudio);
+  });
+  elements.recordOptimizeButton.addEventListener("click", () => {
+    setRecorderOptimize();
   });
   elements.recordFormatSelect.addEventListener("change", renderRecorderWarning);
   elements.recordSurfaceSelect.addEventListener("change", renderRecorderWarning);
@@ -853,19 +901,11 @@ function getRequestedRecorderAudioMode() {
 }
 
 function normalizeRecorderAudioMode(mode, captureMode = getRequestedRecorderMode()) {
-  const normalizedMode =
-    mode === "none" ||
-    mode === "system" ||
-    mode === "system-microphone" ||
-    mode === "microphone"
-      ? mode
-      : "microphone";
-
-  if (captureMode === "camera" && normalizedMode !== "none" && normalizedMode !== "microphone") {
-    return "microphone";
+  if (captureMode === "camera") {
+    return mode === "none" ? "none" : "microphone";
   }
 
-  return normalizedMode;
+  return mode === "none" ? "none" : "microphone";
 }
 
 function canRecordScreenCapture() {
@@ -899,15 +939,9 @@ function isRecorderModeSupported(mode) {
 }
 
 function isRecorderAudioModeSupported(mode, captureMode = getRequestedRecorderMode()) {
-  if (!["none", "microphone", "system", "system-microphone"].includes(mode)) {
-    return false;
-  }
-
-  if (captureMode === "camera") {
-    return mode === "none" || mode === "microphone";
-  }
-
-  return true;
+  return (mode === "none" || mode === "microphone") && (
+    captureMode === "screen" || captureMode === "camera"
+  );
 }
 
 function getRecorderModeLabel(mode) {
@@ -926,17 +960,17 @@ function getRecorderAudioLabel(mode) {
   switch (mode) {
     case "none":
       return "No audio";
-    case "system":
-      return "System audio only";
-    case "system-microphone":
-      return "System audio and microphone";
     case "microphone":
     default:
       return "Microphone audio";
   }
 }
 
-function buildRecorderHint(captureMode, selectedFormat, audioMode) {
+function getRequestedRecorderOptimize() {
+  return elements.recordOptimizeInput.value === "on";
+}
+
+function buildRecorderHint(captureMode, selectedFormat, audioMode, optimize) {
   const notes = [];
 
   if (captureMode === "screen") {
@@ -951,10 +985,16 @@ function buildRecorderHint(captureMode, selectedFormat, audioMode) {
     notes.push("Microphone permission may be requested too.");
   }
 
+  if (optimize) {
+    notes.push("Optimize is on, so saving can take longer after you stop the recording.");
+  } else {
+    notes.push("Optimize is off by default for the fastest save.");
+  }
+
   if (selectedFormat?.needsTranscode) {
     notes.push("If MP4 is not available directly, the app will finish the MP4 after recording stops.");
   } else {
-    notes.push("The recording stays on this device and will appear in the downloads area.");
+    notes.push("The recording stays on this device and will appear in Latest videos and the downloads area.");
   }
 
   return notes.join(" ");
@@ -980,6 +1020,7 @@ function renderRecorderControls() {
   }
 
   const audioMode = getRequestedRecorderAudioMode();
+  const optimize = getRequestedRecorderOptimize();
 
   if (elements.recordAudioModeInput.value !== audioMode) {
     elements.recordAudioModeInput.value = audioMode;
@@ -1026,11 +1067,18 @@ function renderRecorderControls() {
     audioDisabled,
   );
 
+  elements.recordOptimizeButton.classList.toggle("is-active", optimize);
+  elements.recordOptimizeButton.setAttribute("aria-pressed", String(optimize));
+  elements.recordOptimizeButton.disabled = locked || recorderBusy || !getSelectedRecorderFormat();
+  elements.recordOptimizeHint.textContent = optimize
+    ? "Optimization is on. The recording will take a little longer to finish so playback and seeking can be cleaner."
+    : "Leave optimization off for the fastest save. Turn it on if you want cleaner playback and seeking after recording.";
   elements.recordSurfaceField.hidden = requestedMode !== "screen";
   elements.recorderHint.textContent = buildRecorderHint(
     requestedMode,
     getSelectedRecorderFormat(),
     audioMode,
+    optimize,
   );
 }
 
@@ -1055,6 +1103,15 @@ function setRecorderAudioMode(mode) {
   }
 
   elements.recordAudioModeInput.value = nextMode;
+  renderRecorderControls();
+  renderRecorderWarning();
+  syncControlAvailability();
+}
+
+function setRecorderOptimize(forceValue) {
+  const nextValue =
+    typeof forceValue === "boolean" ? forceValue : !getRequestedRecorderOptimize();
+  elements.recordOptimizeInput.value = nextValue ? "on" : "off";
   renderRecorderControls();
   renderRecorderWarning();
   syncControlAvailability();
@@ -1127,12 +1184,12 @@ function renderRecorderWarning(options = {}) {
     notes.push("This browser will record first, then finish the MP4 after you stop.");
   }
 
-  if (settings.requestSystemAudio) {
-    notes.push("System audio depends on what the browser lets the app capture.");
-  }
-
   if (settings.requestMicrophone) {
     notes.push("Microphone access may be requested before the recording starts.");
+  }
+
+  if (settings.optimize) {
+    notes.push("Optimization is on, so the app will do extra finishing work after the recording stops.");
   }
 
   elements.recorderWarning.hidden = false;
@@ -1141,7 +1198,7 @@ function renderRecorderWarning(options = {}) {
   if (!isRecorderBusy() && !preserveStatus) {
     setRecorderStatus("Ready");
     elements.recorderOutputMeta.textContent =
-      "Your recording stays on this device and will appear in the downloads area.";
+      "Your recording stays on this device and will appear in Latest videos and the downloads area.";
   }
 }
 
@@ -1216,7 +1273,7 @@ async function startScreenRecording() {
 
   const settings = getRecorderSettings();
 
-  if (selectedFormat.needsTranscode) {
+  if (selectedFormat.needsTranscode || settings.optimize) {
     void loadFfmpeg({ quiet: true }).catch(() => {});
   }
 
@@ -1233,7 +1290,6 @@ async function startScreenRecording() {
     });
 
     clearDownloads();
-    clearRecorderPreview();
 
     state.recording.active = true;
     state.recording.processing = false;
@@ -1274,10 +1330,14 @@ async function startScreenRecording() {
         captureMode: settings.captureMode,
         desiredFormat: selectedFormat.id,
         includeAudio: captureSession.hasAudio,
+        optimize: settings.optimize,
         quality: settings.quality,
         width: settings.maxWidth,
         fps: settings.fps,
         fileBaseName: state.recording.fileBaseName,
+        captureSurface: state.recording.captureSurface,
+        audioMode: state.recording.audioMode,
+        startedAt: state.recording.startedAt,
       });
     }, { once: true });
 
@@ -1402,29 +1462,38 @@ async function finalizeRecordingOutput(session) {
       setRecorderStatus("Converting recording to MP4...");
       outputs = await transcodeRecordedBlobToMp4(recordedBlob, session);
       note = "Recording captured and converted to MP4.";
+    } else if (session.optimize) {
+      try {
+        setRecorderStatus("Optimizing recording...");
+        outputs = await optimizeRecordedBlob(recordedBlob, session);
+        note = `Recording optimized and exported as ${session.desiredFormat.toUpperCase()}.`;
+      } catch {
+        outputs = await saveRecordedBlobOutput(recordedBlob, session);
+        note =
+          `Recording exported as ${session.desiredFormat.toUpperCase()} without optimization.`;
+      }
     } else {
-      const extension = session.desiredFormat === "mp4" ? "mp4" : "webm";
-      const finalBlob =
-        session.desiredFormat === "mp4"
-          ? new Blob([await recordedBlob.arrayBuffer()], { type: "video/mp4" })
-          : recordedBlob;
-      const result = addDownload({
-        name: `${session.fileBaseName}.${extension}`,
-        blob: finalBlob,
-        caption: `Recording exported as ${extension.toUpperCase()}.`,
-      });
-      outputs = [result];
-      note = `Recording exported as ${extension.toUpperCase()}.`;
-      setRecorderPreview(finalBlob);
+      outputs = await saveRecordedBlobOutput(recordedBlob, session);
+      note = `Recording exported as ${session.desiredFormat.toUpperCase()}.`;
     }
 
     if (!elements.recorderPreview.hidden) {
       elements.recorderPreview.currentTime = 0;
     }
 
+    const outputName = outputs[0]?.name || `${session.fileBaseName}.${session.desiredFormat}`;
+    const outputBlob = outputs[0]?.blob || null;
+    const savedToLibrary =
+      outputBlob instanceof Blob
+        ? await saveRecordingToLibrary(outputBlob, session, outputName)
+        : false;
+
     setRecorderStatus("Recording ready to download");
     elements.recorderOutputMeta.textContent =
-      `${outputs[0].name} - ${formatBytes(outputs[0].size)}`;
+      `${outputName} - ${formatBytes(outputs[0].size)}${savedToLibrary ? " - saved in Latest videos" : ""}`;
+    if (!savedToLibrary && canUseRecordingLibrary()) {
+      note = `${note} Browser storage could not keep a copy in Latest videos.`;
+    }
     finalizeJob("success", outputs, note);
   } catch (error) {
     const message =
@@ -1762,14 +1831,13 @@ function getRecorderSettings() {
     captureMode,
     captureSurface: captureMode === "screen" ? getRequestedRecorderSurface() : "camera",
     audioMode,
+    optimize: getRequestedRecorderOptimize(),
     quality: elements.recordQualitySelect.value,
     maxWidth: elements.recordWidthSelect.value,
     fps: elements.recordFpsSelect.value,
     includeAudio: audioMode !== "none",
-    requestMicrophone: audioMode === "microphone" || audioMode === "system-microphone",
-    requestSystemAudio:
-      captureMode === "screen" &&
-      (audioMode === "system" || audioMode === "system-microphone"),
+    requestMicrophone: audioMode === "microphone",
+    requestSystemAudio: false,
     videoBitsPerSecond: computeRecorderVideoBitrate(
       elements.recordQualitySelect.value,
       elements.recordWidthSelect.value,
@@ -2290,6 +2358,87 @@ async function transcodeRecordedBlobToMp4(blob, session) {
     await removeFfmpegFile(ffmpeg, inputName);
     await removeFfmpegFile(ffmpeg, outputName);
   }
+}
+
+async function saveRecordedBlobOutput(recordedBlob, session) {
+  const extension = session.desiredFormat === "mp4" ? "mp4" : "webm";
+  const finalBlob =
+    session.desiredFormat === "mp4" && recordedBlob.type !== "video/mp4"
+      ? new Blob([await recordedBlob.arrayBuffer()], { type: "video/mp4" })
+      : recordedBlob;
+  const result = addDownload({
+    name: `${session.fileBaseName}.${extension}`,
+    blob: finalBlob,
+    caption: `Recording exported as ${extension.toUpperCase()}.`,
+  });
+  setRecorderPreview(finalBlob);
+  return [result];
+}
+
+async function optimizeRecordedBlob(blob, session) {
+  const desiredExtension = session.desiredFormat === "mp4" ? "mp4" : "webm";
+  const inputExtension = mimeTypeToExtension(blob.type) || desiredExtension;
+  const inputName = `recording-input.${inputExtension}`;
+  const outputName = `${session.fileBaseName}.${desiredExtension}`;
+  const [ffmpeg, inputData] = await Promise.all([loadFfmpeg(), fetchFile(blob)]);
+
+  await ffmpeg.writeFile(inputName, inputData);
+
+  try {
+    await execWithFallback(
+      ffmpeg,
+      inputName,
+      outputName,
+      buildRecordingOptimizationCommandSets(inputName, outputName, session),
+    );
+
+    const output = await ffmpeg.readFile(outputName);
+    const bytes = output instanceof Uint8Array ? output : new Uint8Array(output);
+    const mimeType = session.desiredFormat === "mp4" ? "video/mp4" : "video/webm";
+    const optimizedBlob = new Blob([bytes], { type: mimeType });
+    const result = addDownload({
+      name: outputName,
+      blob: optimizedBlob,
+      caption: `Recording optimized and exported as ${desiredExtension.toUpperCase()}.`,
+    });
+    setRecorderPreview(optimizedBlob);
+    return [result];
+  } finally {
+    await removeFfmpegFile(ffmpeg, inputName);
+    await removeFfmpegFile(ffmpeg, outputName);
+  }
+}
+
+function buildRecordingOptimizationCommandSets(inputName, outputName, session) {
+  if (session.desiredFormat === "mp4") {
+    return [
+      {
+        status: "Optimizing MP4 recording.",
+        args: [
+          "-i",
+          inputName,
+          "-c",
+          "copy",
+          "-movflags",
+          "+faststart",
+          outputName,
+        ],
+      },
+    ];
+  }
+
+  return [
+    {
+      status: "Optimizing WebM recording.",
+      args: [
+        "-i",
+        inputName,
+        "-c",
+        "copy",
+        outputName,
+      ],
+    },
+  ];
 }
 
 function buildRecordingMp4CommandSets(inputName, outputName, session) {
@@ -2963,6 +3112,7 @@ function addDownload({ name, blob, caption }) {
   return {
     name,
     size: blob.size,
+    blob,
   };
 }
 
@@ -3071,6 +3221,376 @@ function renderHistory() {
   }
 }
 
+function renderRecordingLibrary() {
+  elements.recordingList.innerHTML = "";
+
+  if (isWorkspaceLocked()) {
+    elements.recordingLibraryHint.textContent =
+      "Unlock private mode to see the videos saved in this browser.";
+    appendRecordingLibraryEmpty("Unlock to see saved recordings on this device.");
+    return;
+  }
+
+  if (!canUseRecordingLibrary()) {
+    elements.recordingLibraryHint.textContent =
+      "This browser session can still record and download videos, but Latest videos needs IndexedDB support.";
+    appendRecordingLibraryEmpty("Saved videos are unavailable in this browser session.");
+    return;
+  }
+
+  if (!state.recordingLibraryReady) {
+    elements.recordingLibraryHint.textContent =
+      "Checking this browser for saved recordings...";
+    appendRecordingLibraryEmpty("Checking saved recordings...");
+    return;
+  }
+
+  if (state.recordings.length === 0) {
+    elements.recordingLibraryHint.textContent =
+      "Each finished recording stays in this browser so you can replay, download, or remove it later.";
+    appendRecordingLibraryEmpty("No saved recordings yet.");
+    return;
+  }
+
+  elements.recordingLibraryHint.textContent = state.recordingLibraryLoading
+    ? "Opening the selected video from this device..."
+    : "Pick any saved video to open it in the player on the right.";
+
+  for (const entry of state.recordings) {
+    const item = document.createElement("li");
+    item.className = "recording-item";
+
+    const button = document.createElement("button");
+    button.className = "recording-select";
+    button.type = "button";
+    button.dataset.recordingId = entry.id;
+    button.disabled = state.recordingLibraryLoading;
+    button.classList.toggle("is-active", entry.id === state.selectedRecordingId);
+    button.setAttribute("aria-pressed", String(entry.id === state.selectedRecordingId));
+
+    const main = document.createElement("div");
+    main.className = "recording-select-main";
+
+    const title = document.createElement("p");
+    title.className = "recording-select-title";
+    title.textContent = entry.name;
+
+    const meta = document.createElement("p");
+    meta.className = "recording-select-meta";
+    meta.textContent = `${formatTimestamp(entry.createdAt)} - ${formatDurationMs(entry.durationMs)} - ${formatBytes(entry.size)}`;
+
+    main.append(title, meta);
+
+    const tags = document.createElement("div");
+    tags.className = "recording-select-tags";
+    for (const value of [
+      getRecordingKindLabel(entry),
+      entry.format.toUpperCase(),
+      getRecordingAudioLabel(entry.audioMode),
+      entry.optimize ? "Optimized" : "Fast save",
+    ]) {
+      const tag = document.createElement("span");
+      tag.className = "recording-tag";
+      tag.textContent = value;
+      tags.append(tag);
+    }
+
+    button.append(main, tags);
+    item.append(button);
+    elements.recordingList.append(item);
+  }
+}
+
+function appendRecordingLibraryEmpty(message) {
+  const empty = document.createElement("li");
+  empty.className = "history-empty";
+  empty.textContent = message;
+  elements.recordingList.append(empty);
+}
+
+function renderRecordingPlayer() {
+  const selected = getSelectedRecordingMeta();
+
+  if (isWorkspaceLocked()) {
+    clearRecorderPreview();
+    elements.recordingPlayerTitle.textContent = "Unlock to open saved videos.";
+    elements.recordingPlayerMeta.textContent =
+      "Latest videos stay private while your workspace lock is on.";
+    return;
+  }
+
+  if (!canUseRecordingLibrary()) {
+    if (!state.recording.active && !state.recording.processing && elements.recorderPreview.hidden) {
+      clearRecorderPreview();
+    }
+    elements.recordingPlayerTitle.textContent = elements.recorderPreview.hidden
+      ? "Saved video player is unavailable here."
+      : "Latest recording preview";
+    elements.recordingPlayerMeta.textContent = elements.recorderPreview.hidden
+      ? "You can still download each recording right after it finishes."
+      : "This preview is ready to download, but Latest videos is not available in this browser.";
+    return;
+  }
+
+  if (state.recordingLibraryLoading && selected) {
+    elements.recordingPlayerTitle.textContent = `Opening ${selected.name}...`;
+    elements.recordingPlayerMeta.textContent =
+      "Loading the saved video from this browser.";
+    return;
+  }
+
+  if (!selected) {
+    if (!state.recording.active && !state.recording.processing && elements.recorderPreview.hidden) {
+      clearRecorderPreview();
+    }
+    elements.recordingPlayerTitle.textContent = elements.recorderPreview.hidden
+      ? "No saved recording selected yet."
+      : "Latest recording preview";
+    elements.recordingPlayerMeta.textContent = elements.recorderPreview.hidden
+      ? "Finish a recording to preview it here and keep it in Latest videos on this device."
+      : "This preview is ready to download. Pick a saved video or record again to refresh Latest videos.";
+    return;
+  }
+
+  elements.recordingPlayerTitle.textContent = selected.name;
+  elements.recordingPlayerMeta.textContent = [
+    getRecordingKindLabel(selected),
+    selected.captureMode === "screen" ? getRecorderSurfaceLabel(selected.captureSurface) : "Camera view",
+    getRecordingAudioLabel(selected.audioMode),
+    `${selected.format.toUpperCase()} export`,
+    formatDurationMs(selected.durationMs),
+    formatBytes(selected.size),
+  ].join(" - ");
+}
+
+function getSelectedRecordingMeta() {
+  return state.recordings.find((entry) => entry.id === state.selectedRecordingId) || null;
+}
+
+async function restoreRecordingLibrary() {
+  state.recordingLibraryReady = canUseRecordingLibrary();
+  renderRecordingLibrary();
+  renderRecordingPlayer();
+  syncControlAvailability();
+
+  if (!state.recordingLibraryReady || isWorkspaceLocked() || state.recordings.length === 0) {
+    return;
+  }
+
+  await selectRecordingFromLibrary(state.recordings[0].id, { silent: true });
+}
+
+async function selectRecordingFromLibrary(recordingId, options = {}) {
+  if (!recordingId || isWorkspaceLocked() || !canUseRecordingLibrary()) {
+    return;
+  }
+
+  const entry = state.recordings.find((item) => item.id === recordingId);
+  if (!entry) {
+    return;
+  }
+
+  state.selectedRecordingId = recordingId;
+  state.recordingLibraryLoading = true;
+  renderRecordingLibrary();
+  renderRecordingPlayer();
+  syncControlAvailability();
+
+  try {
+    const blob = options.blob || await getRecordingBlob(recordingId);
+
+    if (!(blob instanceof Blob)) {
+      await removeMissingRecording(recordingId);
+      if (!options.silent) {
+        setStatus("That saved recording is no longer available in browser storage.", true);
+      }
+      return;
+    }
+
+    setRecorderPreview(blob);
+    renderRecordingPlayer();
+  } catch (error) {
+    if (!options.silent) {
+      setStatus(
+        error instanceof Error ? error.message : "Could not open the saved recording.",
+        true,
+      );
+    }
+  } finally {
+    state.recordingLibraryLoading = false;
+    renderRecordingLibrary();
+    renderRecordingPlayer();
+    syncControlAvailability();
+  }
+}
+
+async function saveRecordingToLibrary(blob, session, outputName) {
+  if (!canUseRecordingLibrary()) {
+    return false;
+  }
+
+  const entry = {
+    id: createJobId(),
+    name: outputName,
+    createdAt: Date.now(),
+    size: blob.size,
+    durationMs: Math.max(0, Date.now() - session.startedAt),
+    captureMode: session.captureMode,
+    captureSurface: session.captureSurface,
+    audioMode: session.audioMode,
+    format: session.desiredFormat,
+    optimize: Boolean(session.optimize),
+  };
+
+  try {
+    await putRecordingBlob(entry.id, blob);
+    state.recordings = [entry, ...state.recordings.filter((item) => item.id !== entry.id)];
+
+    const overflow = state.recordings.slice(RECORDING_LIBRARY_LIMIT);
+    state.recordings = state.recordings.slice(0, RECORDING_LIBRARY_LIMIT);
+    persistStored(STORAGE_KEYS.recordings, state.recordings);
+    state.recordingLibraryReady = true;
+    state.selectedRecordingId = entry.id;
+    renderRecordingLibrary();
+    renderRecordingPlayer();
+    syncControlAvailability();
+
+    await Promise.all(
+      overflow.map((item) => deleteRecordingBlob(item.id).catch(() => {})),
+    );
+    await selectRecordingFromLibrary(entry.id, { blob, silent: true });
+    return true;
+  } catch {
+    await deleteRecordingBlob(entry.id).catch(() => {});
+    renderRecordingLibrary();
+    renderRecordingPlayer();
+    syncControlAvailability();
+    return false;
+  }
+}
+
+async function downloadSelectedRecording() {
+  const selected = getSelectedRecordingMeta();
+
+  if (!selected || isWorkspaceLocked() || !canUseRecordingLibrary()) {
+    return;
+  }
+
+  state.recordingLibraryLoading = true;
+  renderRecordingLibrary();
+  renderRecordingPlayer();
+  syncControlAvailability();
+
+  try {
+    const blob = await getRecordingBlob(selected.id);
+
+    if (!(blob instanceof Blob)) {
+      await removeMissingRecording(selected.id);
+      setStatus("That saved recording is no longer available in browser storage.", true);
+      return;
+    }
+
+    triggerBlobDownload(selected.name, blob);
+    setStatus(`${selected.name} is downloading.`);
+  } catch (error) {
+    setStatus(
+      error instanceof Error ? error.message : "Could not download the saved recording.",
+      true,
+    );
+  } finally {
+    state.recordingLibraryLoading = false;
+    renderRecordingLibrary();
+    renderRecordingPlayer();
+    syncControlAvailability();
+  }
+}
+
+async function deleteSelectedRecording() {
+  const selected = getSelectedRecordingMeta();
+
+  if (!selected || isWorkspaceLocked() || !canUseRecordingLibrary()) {
+    return;
+  }
+
+  state.recordingLibraryLoading = true;
+  renderRecordingLibrary();
+  renderRecordingPlayer();
+  syncControlAvailability();
+
+  try {
+    await deleteRecordingBlob(selected.id);
+    state.recordings = state.recordings.filter((entry) => entry.id !== selected.id);
+    persistStored(STORAGE_KEYS.recordings, state.recordings);
+
+    const nextId = state.recordings[0]?.id || "";
+    state.selectedRecordingId = nextId;
+
+    if (!nextId) {
+      clearRecorderPreview();
+    }
+
+    setStatus("Saved recording removed from Latest videos.");
+
+    if (nextId) {
+      await selectRecordingFromLibrary(nextId, { silent: true });
+      return;
+    }
+  } catch (error) {
+    setStatus(
+      error instanceof Error ? error.message : "Could not remove the saved recording.",
+      true,
+    );
+  } finally {
+    state.recordingLibraryLoading = false;
+    renderRecordingLibrary();
+    renderRecordingPlayer();
+    syncControlAvailability();
+  }
+}
+
+async function clearSavedRecordings() {
+  if (isWorkspaceLocked() || !canUseRecordingLibrary() || state.recordings.length === 0) {
+    return;
+  }
+
+  state.recordingLibraryLoading = true;
+  renderRecordingLibrary();
+  renderRecordingPlayer();
+  syncControlAvailability();
+
+  try {
+    await clearRecordingBlobs();
+    state.recordings = [];
+    state.selectedRecordingId = "";
+    persistStored(STORAGE_KEYS.recordings, state.recordings);
+    clearRecorderPreview();
+    setStatus("Saved recorder videos cleared from this browser.");
+  } catch (error) {
+    setStatus(
+      error instanceof Error ? error.message : "Could not clear saved recordings.",
+      true,
+    );
+  } finally {
+    state.recordingLibraryLoading = false;
+    renderRecordingLibrary();
+    renderRecordingPlayer();
+    syncControlAvailability();
+  }
+}
+
+async function removeMissingRecording(recordingId) {
+  state.recordings = state.recordings.filter((entry) => entry.id !== recordingId);
+  persistStored(STORAGE_KEYS.recordings, state.recordings);
+  state.selectedRecordingId = state.recordings[0]?.id || "";
+  clearRecorderPreview();
+  renderRecordingLibrary();
+  renderRecordingPlayer();
+
+  if (state.selectedRecordingId) {
+    await selectRecordingFromLibrary(state.selectedRecordingId, { silent: true });
+  }
+}
+
 function renderAnalytics() {
   if (isWorkspaceLocked()) {
     elements.statSuccess.textContent = "Locked";
@@ -3160,6 +3680,8 @@ async function setWorkspacePin() {
   renderProfile();
   renderAnalytics();
   renderHistory();
+  renderRecordingLibrary();
+  renderRecordingPlayer();
   syncControlAvailability();
   setStatus("Workspace PIN saved.");
 }
@@ -3190,8 +3712,16 @@ async function unlockWorkspace() {
   renderProfile();
   renderHistory();
   renderAnalytics();
+  renderRecordingLibrary();
+  renderRecordingPlayer();
   syncControlAvailability();
   setStatus("Workspace unlocked.");
+
+  if (state.recordings.length > 0) {
+    void selectRecordingFromLibrary(state.selectedRecordingId || state.recordings[0].id, {
+      silent: true,
+    });
+  }
 }
 
 function lockWorkspace() {
@@ -3210,6 +3740,8 @@ function lockWorkspace() {
   renderProfile();
   renderHistory();
   renderAnalytics();
+  renderRecordingLibrary();
+  renderRecordingPlayer();
   syncControlAvailability();
   setStatus("Workspace locked.");
 }
@@ -3227,6 +3759,8 @@ function removeWorkspacePin() {
   renderProfile();
   renderHistory();
   renderAnalytics();
+  renderRecordingLibrary();
+  renderRecordingPlayer();
   syncControlAvailability();
   setStatus("Workspace PIN removed.");
 }
@@ -3305,6 +3839,25 @@ function syncControlAvailability() {
     state.busy || recorderBusy || !state.profile.pinHash || isWorkspaceLocked();
   elements.removePinButton.disabled =
     state.busy || recorderBusy || !state.profile.pinHash || isWorkspaceLocked();
+  elements.clearRecordingsButton.disabled =
+    state.busy ||
+    recorderBusy ||
+    state.recordingLibraryLoading ||
+    isWorkspaceLocked() ||
+    !canUseRecordingLibrary() ||
+    state.recordings.length === 0;
+  elements.downloadRecordingButton.disabled =
+    state.busy ||
+    recorderBusy ||
+    state.recordingLibraryLoading ||
+    isWorkspaceLocked() ||
+    !getSelectedRecordingMeta();
+  elements.deleteRecordingButton.disabled =
+    state.busy ||
+    recorderBusy ||
+    state.recordingLibraryLoading ||
+    isWorkspaceLocked() ||
+    !getSelectedRecordingMeta();
   renderRecorderControls();
 }
 
@@ -3454,6 +4007,137 @@ function persistStored(key, value) {
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 
+function canUseRecordingLibrary() {
+  return typeof window.indexedDB !== "undefined";
+}
+
+function normalizeStoredRecordings(entries) {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+
+  return entries
+    .filter((entry) => entry && typeof entry === "object" && entry.id && entry.name)
+    .map((entry) => ({
+      id: String(entry.id),
+      name: String(entry.name),
+      createdAt: Number(entry.createdAt) || Date.now(),
+      size: Number(entry.size) || 0,
+      durationMs: Number(entry.durationMs) || 0,
+      captureMode: entry.captureMode === "camera" ? "camera" : "screen",
+      captureSurface:
+        entry.captureSurface === "window" || entry.captureSurface === "browser"
+          ? entry.captureSurface
+          : "screen",
+      audioMode: normalizeRecorderAudioMode(
+        entry.audioMode,
+        entry.captureMode === "camera" ? "camera" : "screen",
+      ),
+      format: entry.format === "webm" ? "webm" : "mp4",
+      optimize: Boolean(entry.optimize),
+    }))
+    .sort((left, right) => right.createdAt - left.createdAt)
+    .slice(0, RECORDING_LIBRARY_LIMIT);
+}
+
+function openRecordingLibrary() {
+  if (!canUseRecordingLibrary()) {
+    return Promise.reject(
+      new Error("Saved videos are unavailable because IndexedDB is not supported here."),
+    );
+  }
+
+  if (!recordingLibraryDbPromise) {
+    recordingLibraryDbPromise = new Promise((resolve, reject) => {
+      const request = window.indexedDB.open(RECORDING_LIBRARY_DB_NAME, 1);
+
+      request.addEventListener("upgradeneeded", () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(RECORDING_LIBRARY_STORE)) {
+          db.createObjectStore(RECORDING_LIBRARY_STORE, { keyPath: "id" });
+        }
+      });
+
+      request.addEventListener("success", () => {
+        const db = request.result;
+        db.addEventListener("versionchange", () => {
+          db.close();
+        });
+        resolve(db);
+      });
+
+      request.addEventListener("error", () => {
+        reject(request.error || new Error("Could not open the saved recordings database."));
+      });
+    });
+  }
+
+  return recordingLibraryDbPromise;
+}
+
+async function putRecordingBlob(id, blob) {
+  const db = await openRecordingLibrary();
+
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction(RECORDING_LIBRARY_STORE, "readwrite");
+    transaction.addEventListener("complete", resolve, { once: true });
+    transaction.addEventListener("error", () => {
+      reject(transaction.error || new Error("Could not save the recording in this browser."));
+    }, { once: true });
+    transaction.objectStore(RECORDING_LIBRARY_STORE).put({ id, blob });
+  });
+}
+
+async function getRecordingBlob(id) {
+  const db = await openRecordingLibrary();
+
+  return await new Promise((resolve, reject) => {
+    const transaction = db.transaction(RECORDING_LIBRARY_STORE, "readonly");
+    const request = transaction.objectStore(RECORDING_LIBRARY_STORE).get(id);
+
+    request.addEventListener("success", () => {
+      resolve(request.result?.blob || null);
+    }, { once: true });
+    request.addEventListener("error", () => {
+      reject(request.error || new Error("Could not load the saved recording."));
+    }, { once: true });
+  });
+}
+
+async function deleteRecordingBlob(id) {
+  if (!canUseRecordingLibrary()) {
+    return;
+  }
+
+  const db = await openRecordingLibrary();
+
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction(RECORDING_LIBRARY_STORE, "readwrite");
+    transaction.addEventListener("complete", resolve, { once: true });
+    transaction.addEventListener("error", () => {
+      reject(transaction.error || new Error("Could not remove the saved recording."));
+    }, { once: true });
+    transaction.objectStore(RECORDING_LIBRARY_STORE).delete(id);
+  });
+}
+
+async function clearRecordingBlobs() {
+  if (!canUseRecordingLibrary()) {
+    return;
+  }
+
+  const db = await openRecordingLibrary();
+
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction(RECORDING_LIBRARY_STORE, "readwrite");
+    transaction.addEventListener("complete", resolve, { once: true });
+    transaction.addEventListener("error", () => {
+      reject(transaction.error || new Error("Could not clear saved recordings."));
+    }, { once: true });
+    transaction.objectStore(RECORDING_LIBRARY_STORE).clear();
+  });
+}
+
 function bytesToBase64(bytes) {
   let binary = "";
   for (const byte of bytes) {
@@ -3502,6 +4186,39 @@ function formatDurationMs(milliseconds) {
 
 function formatTimestamp(timestamp) {
   return new Date(timestamp).toLocaleString();
+}
+
+function getRecordingKindLabel(entry) {
+  return entry.captureMode === "camera" ? "Camera" : "Screen";
+}
+
+function getRecordingAudioLabel(audioMode) {
+  switch (normalizeRecorderAudioMode(audioMode)) {
+    case "microphone":
+      return "Microphone";
+    case "system":
+      return "System";
+    case "system-microphone":
+      return "System + Mic";
+    case "none":
+    default:
+      return "No audio";
+  }
+}
+
+function triggerBlobDownload(name, blob) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.rel = "noopener";
+  link.style.display = "none";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 1200);
 }
 
 function stripExtension(fileName) {
