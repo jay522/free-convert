@@ -14,6 +14,7 @@ const STORAGE_KEYS = {
   analytics: "free-converter-analytics-v1",
   profile: "free-converter-profile-v1",
   recordings: "free-converter-recordings-v1",
+  recordingNaming: "free-converter-recording-naming-v1",
 };
 
 const HISTORY_LIMIT = 12;
@@ -146,6 +147,9 @@ const state = {
   analytics: loadStored(STORAGE_KEYS.analytics, createDefaultAnalytics()),
   profile: normalizeProfile(loadStored(STORAGE_KEYS.profile, null)),
   recordings: normalizeStoredRecordings(loadStored(STORAGE_KEYS.recordings, [])),
+  recordingNaming: normalizeRecordingNaming(
+    loadStored(STORAGE_KEYS.recordingNaming, null),
+  ),
   selectedRecordingId: "",
   recordingLibraryReady: false,
   recordingLibraryLoading: false,
@@ -270,8 +274,10 @@ async function boot() {
     return;
   }
 
+  syncRecordingNamingCounters();
   populatePresetSelect();
   populateRecorderFormats();
+  elements.recordSurfaceSelect.value = "screen";
   bindEvents();
   state.diagnostics = detectDiagnostics();
   renderDiagnostics();
@@ -512,7 +518,7 @@ function setActivePreset(presetKey) {
 function resetOptionInputs() {
   elements.videoProfileSelect.value = "balanced";
   elements.videoWidthSelect.value = "1280";
-  elements.videoFpsSelect.value = "30";
+  elements.videoFpsSelect.value = "24";
   elements.stripAudioCheckbox.checked = false;
   elements.jpgQualityRange.value = "92";
   elements.webpQualityRange.value = "90";
@@ -977,6 +983,9 @@ function buildRecorderHint(captureMode, selectedFormat, audioMode, optimize) {
     notes.push(
       "Choose Entire screen in the share prompt if you want app switching to stay in the recording.",
     );
+    notes.push(
+      "If the browser only offers This Tab on macOS, allow Screen Recording for your browser in System Settings > Privacy & Security > Screen Recording, then restart the browser.",
+    );
   } else {
     notes.push("The browser will ask for camera permission when you start.");
   }
@@ -1170,6 +1179,9 @@ function renderRecorderWarning(options = {}) {
     if (surface === "screen") {
       notes.push(
         "Choose Entire screen in the browser prompt if you want app switching to stay in the recording.",
+      );
+      notes.push(
+        "If only This Tab appears on macOS, enable Screen Recording for your browser in System Settings > Privacy & Security > Screen Recording and restart the browser.",
       );
     } else if (surface === "window") {
       notes.push("Only the selected app window will be recorded.");
@@ -1389,7 +1401,7 @@ async function startScreenRecording() {
     if (error instanceof DOMException && error.name === "NotAllowedError" && settings.captureMode === "screen") {
       setRecorderStatus("Screen selection was cancelled.", true);
       elements.recorderOutputMeta.textContent =
-        "Choose a screen, window, or tab when you are ready to capture. Pick Entire screen if you want app switching to stay visible.";
+        "Choose a screen, window, or tab when you are ready to capture. Pick Entire screen if you want app switching to stay visible. On macOS, allow Screen Recording for your browser in System Settings > Privacy & Security > Screen Recording.";
       return;
     }
 
@@ -1796,19 +1808,21 @@ function getRecorderFormatOptions() {
     });
   }
 
-  if (mp4Mime) {
-    formats.push({
-      id: "mp4",
-      label: "MP4",
-      captureMimeType: mp4Mime,
-      needsTranscode: false,
-    });
-  } else if (webmMime) {
+  // On browsers that can record WebM, MP4 is more reliable when we transcode
+  // after capture instead of relying on native MediaRecorder MP4 blobs.
+  if (webmMime) {
     formats.push({
       id: "mp4",
       label: "MP4",
       captureMimeType: webmMime,
       needsTranscode: true,
+    });
+  } else if (mp4Mime) {
+    formats.push({
+      id: "mp4",
+      label: "MP4",
+      captureMimeType: mp4Mime,
+      needsTranscode: false,
     });
   }
 
@@ -1914,6 +1928,15 @@ function getActiveRecorderSurfaceMessage(requestedSurface, actualSurface) {
 }
 
 function buildDisplayMediaOptions(settings, mode = "advanced") {
+  // Compatibility-first request so Chrome/Safari on macOS shows the
+  // standard chooser (Entire Screen / Window / Tab) when available.
+  if (mode === "compat") {
+    return {
+      video: true,
+      audio: settings.requestSystemAudio,
+    };
+  }
+
   const video = {
     frameRate: {
       ideal: Number(settings.fps),
@@ -1921,7 +1944,7 @@ function buildDisplayMediaOptions(settings, mode = "advanced") {
     },
   };
 
-  if (settings.maxWidth !== "original") {
+  if (mode === "advanced" && settings.maxWidth !== "original") {
     video.width = {
       ideal: Number(settings.maxWidth),
       max: Number(settings.maxWidth),
@@ -1937,22 +1960,10 @@ function buildDisplayMediaOptions(settings, mode = "advanced") {
     return options;
   }
 
-  if (settings.captureSurface === "screen") {
-    video.displaySurface = "monitor";
-    options.monitorTypeSurfaces = "include";
-    options.surfaceSwitching = "include";
-    options.selfBrowserSurface = "exclude";
-  } else if (settings.captureSurface === "window") {
-    video.displaySurface = "window";
-    options.monitorTypeSurfaces = "exclude";
-    options.surfaceSwitching = "exclude";
-    options.selfBrowserSurface = "exclude";
+  // Avoid forceful source hints because they can trigger tab-only dialogs
+  // in some Chrome/macOS paths. Keep only audio-related hints here.
+  if (settings.captureSurface === "window") {
     options.windowAudio = settings.requestSystemAudio ? "window" : "exclude";
-  } else {
-    video.displaySurface = "browser";
-    options.preferCurrentTab = true;
-    options.surfaceSwitching = "include";
-    options.selfBrowserSurface = "include";
   }
 
   if (settings.requestSystemAudio) {
@@ -1963,10 +1974,15 @@ function buildDisplayMediaOptions(settings, mode = "advanced") {
 }
 
 function getDisplayMediaOptionSets(settings) {
-  return [
-    buildDisplayMediaOptions(settings, "advanced"),
-    buildDisplayMediaOptions(settings, "basic"),
-  ];
+  const sets = [buildDisplayMediaOptions(settings, "compat")];
+  sets.push(buildDisplayMediaOptions(settings, "basic"));
+
+  // Use advanced as a final fallback only for browser-tab preference.
+  if (settings.captureSurface === "browser") {
+    sets.push(buildDisplayMediaOptions(settings, "advanced"));
+  }
+
+  return sets;
 }
 
 async function requestDisplayStream(settings) {
@@ -2275,17 +2291,19 @@ function isRecorderBusy() {
 }
 
 function buildRecordingFileBaseName(kind = "screen") {
-  const now = new Date();
-  const parts = [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, "0"),
-    String(now.getDate()).padStart(2, "0"),
-    "-",
-    String(now.getHours()).padStart(2, "0"),
-    String(now.getMinutes()).padStart(2, "0"),
-    String(now.getSeconds()).padStart(2, "0"),
-  ];
-  return `${kind === "camera" ? "camera" : "screen"}-recording-${parts.join("")}`;
+  const type = kind === "camera" ? "camera" : "screen";
+  const nextNumber = getNextRecordingNumber(type);
+  const prefix = type === "camera" ? "camera-recorded" : "screen-recorded";
+  return `${prefix}-${String(nextNumber).padStart(2, "0")}`;
+}
+
+function getNextRecordingNumber(type) {
+  const key = type === "camera" ? "camera" : "screen";
+  const current = Number(state.recordingNaming[key]) || 0;
+  const nextValue = current + 1;
+  state.recordingNaming[key] = nextValue;
+  persistStored(STORAGE_KEYS.recordingNaming, state.recordingNaming);
+  return nextValue;
 }
 
 function mimeTypeToExtension(mimeType) {
@@ -2312,18 +2330,19 @@ function getVideoProfileOptions() {
     case "compressed":
       return {
         x264Preset: "ultrafast",
-        x264Crf: "30",
-        mpeg4Q: "10",
-        audioBitrate: "96k",
+        x264Crf: "32",
+        mpeg4Q: "11",
+        audioBitrate: "72k",
         tune: "zerolatency",
       };
     case "balanced":
     default:
       return {
-        x264Preset: "superfast",
-        x264Crf: "24",
-        mpeg4Q: "6",
-        audioBitrate: "128k",
+        x264Preset: "ultrafast",
+        x264Crf: "27",
+        mpeg4Q: "8",
+        audioBitrate: "96k",
+        tune: "zerolatency",
       };
   }
 }
@@ -2454,6 +2473,8 @@ function buildRecordingMp4CommandSets(inputName, outputName, session) {
     "aac",
     "-b:a",
     profile.audioBitrate,
+    "-movflags",
+    "+faststart",
     outputName,
   ];
   const withoutAudioArgs = [
@@ -2462,6 +2483,8 @@ function buildRecordingMp4CommandSets(inputName, outputName, session) {
     ...filters,
     ...videoArgs,
     "-an",
+    "-movflags",
+    "+faststart",
     outputName,
   ];
 
@@ -2509,16 +2532,17 @@ function getRecorderTranscodeProfile(quality) {
     case "compact":
       return {
         x264Preset: "ultrafast",
-        x264Crf: "30",
-        audioBitrate: "96k",
+        x264Crf: "33",
+        audioBitrate: "80k",
         tune: "zerolatency",
       };
     case "balanced":
     default:
       return {
-        x264Preset: "superfast",
-        x264Crf: "24",
-        audioBitrate: "128k",
+        x264Preset: "ultrafast",
+        x264Crf: "28",
+        audioBitrate: "96k",
+        tune: "zerolatency",
       };
   }
 }
@@ -3310,6 +3334,12 @@ function appendRecordingLibraryEmpty(message) {
 
 function renderRecordingPlayer() {
   const selected = getSelectedRecordingMeta();
+  elements.downloadRecordingButton.textContent = selected
+    ? `Download ${selected.name}`
+    : "Download selected video";
+  elements.deleteRecordingButton.textContent = selected
+    ? "Remove selected video"
+    : "Remove from latest videos";
 
   if (isWorkspaceLocked()) {
     clearRecorderPreview();
@@ -4007,6 +4037,43 @@ function persistStored(key, value) {
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 
+function normalizeRecordingNaming(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const normalizeCounter = (counter) =>
+    Math.max(0, Math.floor(Number(counter) || 0));
+
+  return {
+    screen: normalizeCounter(source.screen),
+    camera: normalizeCounter(source.camera),
+  };
+}
+
+function syncRecordingNamingCounters() {
+  const findMaxCounter = (prefix) => {
+    const regex = new RegExp(`^${prefix}-(\\d+)\\.(mp4|webm)$`, "i");
+    return state.recordings.reduce((max, entry) => {
+      const match = String(entry.name || "").match(regex);
+      const counter = match ? Number(match[1]) : 0;
+      return Number.isFinite(counter) ? Math.max(max, counter) : max;
+    }, 0);
+  };
+
+  const maxScreen = findMaxCounter("screen-recorded");
+  const maxCamera = findMaxCounter("camera-recorded");
+  const nextState = {
+    screen: Math.max(state.recordingNaming.screen, maxScreen),
+    camera: Math.max(state.recordingNaming.camera, maxCamera),
+  };
+
+  if (
+    nextState.screen !== state.recordingNaming.screen ||
+    nextState.camera !== state.recordingNaming.camera
+  ) {
+    state.recordingNaming = nextState;
+    persistStored(STORAGE_KEYS.recordingNaming, state.recordingNaming);
+  }
+}
+
 function canUseRecordingLibrary() {
   return typeof window.indexedDB !== "undefined";
 }
@@ -4016,28 +4083,57 @@ function normalizeStoredRecordings(entries) {
     return [];
   }
 
-  return entries
+  const filtered = entries
     .filter((entry) => entry && typeof entry === "object" && entry.id && entry.name)
-    .map((entry) => ({
+    .sort((left, right) => (Number(right.createdAt) || 0) - (Number(left.createdAt) || 0))
+    .slice(0, RECORDING_LIBRARY_LIMIT);
+
+  return filtered.map((entry, index) => {
+    const captureMode = entry.captureMode === "camera" ? "camera" : "screen";
+    const format = entry.format === "webm" ? "webm" : "mp4";
+
+    return {
       id: String(entry.id),
-      name: String(entry.name),
+      name: normalizeRecordingFileName(String(entry.name), captureMode, format, index + 1),
       createdAt: Number(entry.createdAt) || Date.now(),
       size: Number(entry.size) || 0,
       durationMs: Number(entry.durationMs) || 0,
-      captureMode: entry.captureMode === "camera" ? "camera" : "screen",
+      captureMode,
       captureSurface:
         entry.captureSurface === "window" || entry.captureSurface === "browser"
           ? entry.captureSurface
           : "screen",
-      audioMode: normalizeRecorderAudioMode(
-        entry.audioMode,
-        entry.captureMode === "camera" ? "camera" : "screen",
-      ),
-      format: entry.format === "webm" ? "webm" : "mp4",
+      audioMode: normalizeRecorderAudioMode(entry.audioMode, captureMode),
+      format,
       optimize: Boolean(entry.optimize),
-    }))
-    .sort((left, right) => right.createdAt - left.createdAt)
-    .slice(0, RECORDING_LIBRARY_LIMIT);
+    };
+  });
+}
+
+function normalizeRecordingFileName(name, captureMode, format, fallbackNumber = 1) {
+  const extension = format === "webm" ? "webm" : "mp4";
+  const basePrefix = captureMode === "camera" ? "camera-recorded" : "screen-recorded";
+  const fallbackBase = `${basePrefix}-${String(Math.max(1, fallbackNumber)).padStart(2, "0")}`;
+  const trimmed = String(name || "").trim();
+
+  if (!trimmed) {
+    return `${fallbackBase}.${extension}`;
+  }
+
+  const uuidLikeName = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?:\.[a-z0-9]+)?$/i;
+  const blobLikeName =
+    trimmed.toLowerCase().startsWith("blob") ||
+    trimmed.toLowerCase().startsWith("recording-input");
+
+  if (uuidLikeName.test(trimmed) || blobLikeName) {
+    return `${fallbackBase}.${extension}`;
+  }
+
+  if (!/\.[a-z0-9]+$/i.test(trimmed)) {
+    return `${trimmed}.${extension}`;
+  }
+
+  return trimmed;
 }
 
 function openRecordingLibrary() {

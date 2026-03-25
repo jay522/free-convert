@@ -1,4 +1,4 @@
-const CACHE_NAME = "free-converter-shell-v2";
+const CACHE_NAME = "free-converter-shell-v3";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -20,6 +20,17 @@ const HOT_VIDEO_ASSETS = [
   "./vendor/ffmpeg-core/ffmpeg-core.js",
   "./vendor/ffmpeg-core/ffmpeg-core.wasm",
 ];
+
+const NETWORK_FIRST_PATHS = new Set([
+  "/",
+  "/index.html",
+  "/styles.css",
+  "/app.js",
+]);
+
+function isNetworkFirstRequest(url) {
+  return NETWORK_FIRST_PATHS.has(url.pathname);
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -55,6 +66,23 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) {
+    return;
+  }
+
+  if (isNetworkFirstRequest(url)) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, copy);
+            });
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request)),
+    );
     return;
   }
 

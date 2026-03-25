@@ -1,0 +1,607 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>free-converter extension</title>
+    <meta
+      name="description"
+      content="Chrome extension for local file conversion, screen recording, camera recording, and PDF tools."
+    />
+    <meta name="theme-color" content="#0f77ff" />
+    <link rel="icon" type="image/png" href="../icons/icon-32.png" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="site-backdrop" aria-hidden="true">
+      <div class="ambient-orb ambient-orb-a"></div>
+      <div class="ambient-orb ambient-orb-b"></div>
+      <div class="ambient-orb ambient-orb-c"></div>
+    </div>
+
+    <div class="page-shell">
+      <header class="masthead">
+        <div class="topbar">
+          <a class="brand" href="#converter-title" aria-label="free-converter home">
+            <span class="brand-mark">fc</span>
+            <span class="brand-copy">
+              <strong>free-converter</strong>
+              <small>Chrome extension for local conversion and recording</small>
+            </span>
+          </a>
+
+          <div class="topbar-badges" aria-label="Platform highlights">
+            <span>Chrome extension</span>
+            <span>No upload</span>
+            <span>Works on your device</span>
+          </div>
+        </div>
+
+        <section class="hero">
+          <div class="hero-main">
+            <p class="eyebrow">Chrome extension</p>
+            <h1>Convert files and capture video without leaving Chrome.</h1>
+            <p class="hero-copy">
+              Choose what you want to make, add your file, and download the
+              result. Your files stay on this device while the conversion runs,
+              whether you open the converter for quick file work or screen and
+              camera recording.
+            </p>
+
+            <div class="hero-actions">
+              <a class="hero-primary-link" href="#converter-title">Open converter</a>
+              <a class="hero-secondary-link" href="#extras-title">Open recorder</a>
+            </div>
+
+            <div class="hero-chips" aria-label="Product highlights">
+              <span>Open from the toolbar</span>
+              <span>No upload</span>
+              <span>Screen, camera, and file tools</span>
+            </div>
+          </div>
+
+          <aside class="hero-showcase" aria-label="Product overview">
+            <div class="showcase-panel">
+              <div>
+                <p class="panel-kicker">How it works</p>
+                <h2 class="showcase-title">You only need 3 simple steps.</h2>
+              </div>
+
+              <div class="showcase-metrics">
+                <article class="showcase-metric">
+                  <span>Step 1</span>
+                  <strong>Choose</strong>
+                  <small>Pick the result you want, like MP4, PDF, JPG, PNG, or WebP.</small>
+                </article>
+
+                <article class="showcase-metric">
+                  <span>Step 2</span>
+                  <strong>Add</strong>
+                  <small>Drop your files in or tap to pick them from your device.</small>
+                </article>
+
+                <article class="showcase-metric">
+                  <span>Step 3</span>
+                  <strong>Download</strong>
+                  <small>Wait for the result, then save the converted file.</small>
+                </article>
+              </div>
+
+              <div class="showcase-list">
+                <div class="showcase-list-row">
+                  <span>Best for most people</span>
+                  <strong>Keep the recommended settings</strong>
+                </div>
+                <div class="showcase-list-row">
+                  <span>Privacy</span>
+                  <strong>Your files stay on this device</strong>
+                </div>
+                <div class="showcase-list-row">
+                  <span>Quick access</span>
+                  <strong>Pin the extension to open it anytime</strong>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </section>
+      </header>
+
+      <main class="layout">
+        <section class="panel converter-panel" aria-labelledby="converter-title">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Converter</p>
+              <h2 id="converter-title">Choose what you want to make</h2>
+            </div>
+            <span class="format-badge" id="formatBadge">WebM to MP4</span>
+          </div>
+
+          <div class="converter-workspace">
+            <section class="converter-step converter-step-workflow" aria-labelledby="step-workflow-title">
+              <div class="step-head">
+                <span class="step-chip">Step 1</span>
+                <h3 id="step-workflow-title">Choose workflow</h3>
+                <p class="helper-text">Pick what you want to make.</p>
+              </div>
+              <select id="presetSelect" aria-label="Select a conversion preset" hidden></select>
+              <div class="workflow-grid" id="workflowGrid" aria-label="Choose a conversion workflow"></div>
+            </section>
+
+            <section class="converter-step converter-step-upload" aria-labelledby="step-upload-title">
+              <div class="step-head">
+                <span class="step-chip">Step 2</span>
+                <h3 id="step-upload-title">Add your file</h3>
+                <p class="helper-text">Drop the file here or pick it from your device.</p>
+              </div>
+              <button class="dropzone" id="dropZone" type="button">
+                <input id="fileInput" type="file" hidden />
+                <span class="dropzone-step">Add files</span>
+                <span class="dropzone-label" id="dropZoneLabel">
+                  Drop files here or pick from your device
+                </span>
+                <span class="dropzone-hint" id="dropZoneHint">
+                  Single WebM file for MP4 conversion
+                </span>
+                <span class="dropzone-tip" id="dropZoneTip">
+                  Your files stay on this device and the default settings work for most people.
+                </span>
+              </button>
+
+              <div class="smart-match" id="smartMatch" hidden>
+                <div>
+                  <p class="panel-kicker">Smart match</p>
+                  <p class="helper-text" id="smartMatchText">
+                    Choose the output you want for these files.
+                  </p>
+                </div>
+                <div class="smart-match-actions" id="smartMatchActions"></div>
+              </div>
+
+              <div class="selection-bar">
+                <div>
+                  <p class="panel-kicker">Selected files</p>
+                  <p class="helper-text" id="helperText">
+                    Turn one WebM video into an MP4 file.
+                  </p>
+                  <p class="helper-text" id="selectionSummary">
+                    Add a file and the app will show what the result will be.
+                  </p>
+                </div>
+                <div class="selection-actions">
+                  <span class="count-badge" id="countBadge">0 files</span>
+                  <button class="secondary-button" id="pickFilesButton" type="button">
+                    Pick files
+                  </button>
+                  <button class="ghost-button" id="clearFilesButton" type="button">
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              <ul class="file-list" id="fileList" aria-live="polite">
+                <li class="file-empty">No files selected yet.</li>
+              </ul>
+
+              <section class="options-panel" aria-labelledby="options-title">
+                <div class="panel-inline-head">
+                  <div>
+                    <p class="panel-kicker">Optional settings</p>
+                    <h3 id="options-title">Change quality or speed only if you need to</h3>
+                  </div>
+                </div>
+
+                <div class="warning-banner" id="videoWarning" hidden></div>
+                <details class="simple-details" id="advancedOptions">
+                  <summary>Open optional settings</summary>
+                  <div class="simple-details-body">
+                    <div class="options-group" id="videoOptions">
+                      <label class="field">
+                        <span>Video quality</span>
+                        <select id="videoProfileSelect">
+                          <option value="archive">Best quality</option>
+                          <option value="balanced" selected>Recommended</option>
+                          <option value="compressed">Smaller file and faster</option>
+                        </select>
+                      </label>
+
+                      <div class="options-grid">
+                        <label class="field">
+                          <span>Picture size</span>
+                          <select id="videoWidthSelect">
+                            <option value="original">Keep original size</option>
+                            <option value="1920">Large</option>
+                            <option value="1280" selected>Recommended</option>
+                            <option value="854">Medium</option>
+                            <option value="640">Smallest and fastest</option>
+                          </select>
+                        </label>
+
+                        <label class="field">
+                          <span>Smoothness</span>
+                          <select id="videoFpsSelect">
+                            <option value="original">Keep original</option>
+                            <option value="60">Very smooth</option>
+                            <option value="30" selected>Recommended</option>
+                            <option value="24">Movie-like</option>
+                            <option value="20">Fastest</option>
+                          </select>
+                        </label>
+                      </div>
+
+                      <label class="checkbox-field">
+                        <input id="stripAudioCheckbox" type="checkbox" />
+                        <span>Remove sound from the result</span>
+                      </label>
+                    </div>
+
+                    <div class="options-group" id="imageOptions" hidden>
+                      <div class="options-grid">
+                        <label class="field">
+                          <span>JPG quality</span>
+                          <input id="jpgQualityRange" type="range" min="55" max="95" value="92" />
+                          <small id="jpgQualityLabel">92%</small>
+                        </label>
+
+                        <label class="field">
+                          <span>WebP quality</span>
+                          <input id="webpQualityRange" type="range" min="55" max="95" value="90" />
+                          <small id="webpQualityLabel">90%</small>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div class="options-group" id="pdfOptions" hidden>
+                      <p class="helper-text">
+                        PDF files keep the same order as the file list above.
+                      </p>
+                    </div>
+
+                    <p class="helper-text" id="optionsHint">
+                      If you are not sure, leave the recommended settings as they are.
+                    </p>
+                  </div>
+                </details>
+              </section>
+            </section>
+
+            <aside class="converter-step converter-step-finish" aria-labelledby="step-finish-title">
+              <div class="step-head">
+                <span class="step-chip">Step 3</span>
+                <h3 id="step-finish-title">Convert and download</h3>
+                <p class="helper-text">Start the job, then download the finished file here.</p>
+              </div>
+              <div class="status-card" aria-live="polite">
+                <div class="status-row">
+                  <p class="status-label">Status</p>
+                  <p class="status-text" id="statusText">Pick or drop files to begin.</p>
+                </div>
+                <div class="progress-track" aria-hidden="true">
+                  <div class="progress-fill" id="progressFill"></div>
+                </div>
+              </div>
+
+              <div class="action-row">
+                <button class="primary-button" id="convertButton" type="button">
+                  Create MP4
+                </button>
+                <button class="ghost-button" id="cancelButton" type="button" hidden>
+                  Cancel job
+                </button>
+              </div>
+
+              <section class="outputs-card" aria-labelledby="downloads-title">
+                <div class="panel-inline-head outputs-head">
+                  <div>
+                    <p class="panel-kicker">Downloads</p>
+                    <h3 id="downloads-title">Your converted files</h3>
+                  </div>
+                </div>
+                <div class="downloads-grid" id="downloads"></div>
+                <p class="downloads-empty" id="downloadsEmpty">
+                  Your finished files will appear here.
+                </p>
+              </section>
+            </aside>
+          </div>
+        </section>
+
+        <section class="panel extras-panel" aria-labelledby="extras-title">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Optional tools</p>
+              <h2 id="extras-title">More tools if you need them</h2>
+            </div>
+          </div>
+          <p class="helper-text">
+            Most people can ignore the sections below and just use the converter above.
+          </p>
+
+          <details class="simple-details">
+            <summary>Use the recorder</summary>
+            <div class="simple-details-body">
+              <div class="recorder-grid">
+                <div class="detail-card recorder-controls">
+                  <h3 id="recorder-title">Record your screen or camera</h3>
+                  <div class="recorder-choice-section">
+                    <p class="panel-kicker">What do you want to capture?</p>
+                    <input id="recordCaptureModeInput" type="hidden" value="screen" />
+                    <div
+                      class="recorder-choice-grid"
+                      id="recordCaptureModeGroup"
+                      role="group"
+                      aria-label="Choose what to capture"
+                    >
+                      <button
+                        class="recorder-choice-card is-active"
+                        id="recordCaptureScreenButton"
+                        type="button"
+                        data-record-mode="screen"
+                        aria-pressed="true"
+                      >
+                        <strong>Only Screen</strong>
+                        <span>Record your full screen, one app window, or one browser tab.</span>
+                      </button>
+                      <button
+                        class="recorder-choice-card is-disabled"
+                        id="recordCaptureScreenCameraButton"
+                        type="button"
+                        data-record-mode="screen-camera"
+                        data-coming-soon="true"
+                        aria-pressed="false"
+                        disabled
+                      >
+                        <strong>Screen + Camera</strong>
+                        <span>Keep the screen full size with your camera in a small corner overlay.</span>
+                        <small>Coming soon</small>
+                      </button>
+                      <button
+                        class="recorder-choice-card"
+                        id="recordCaptureCameraButton"
+                        type="button"
+                        data-record-mode="camera"
+                        aria-pressed="false"
+                      >
+                        <strong>Only Camera</strong>
+                        <span>Record your webcam with the same quality and format settings.</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="recorder-choice-section">
+                    <p class="panel-kicker">Record audio?</p>
+                    <input id="recordAudioModeInput" type="hidden" value="microphone" />
+                    <div
+                      class="recorder-choice-grid recorder-audio-grid"
+                      id="recordAudioModeGroup"
+                      role="group"
+                      aria-label="Choose audio source"
+                    >
+                      <button
+                        class="recorder-choice-card"
+                        type="button"
+                        data-record-audio="none"
+                        aria-pressed="false"
+                      >
+                        <strong>None</strong>
+                        <span>Video only</span>
+                      </button>
+                      <button
+                        class="recorder-choice-card is-active"
+                        type="button"
+                        data-record-audio="microphone"
+                        aria-pressed="true"
+                      >
+                        <strong>Microphone</strong>
+                        <span>Use your mic</span>
+                      </button>
+                      <button
+                        class="recorder-choice-card"
+                        type="button"
+                        data-record-audio="system"
+                        aria-pressed="false"
+                      >
+                        <strong>System</strong>
+                        <span>Computer audio only</span>
+                      </button>
+                      <button
+                        class="recorder-choice-card"
+                        type="button"
+                        data-record-audio="system-microphone"
+                        aria-pressed="false"
+                      >
+                        <strong>System + Mic.</strong>
+                        <span>Computer audio and mic</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="options-grid">
+                    <label class="field">
+                      <span>Save as</span>
+                      <select id="recordFormatSelect"></select>
+                    </label>
+
+                    <label class="field" id="recordSurfaceField">
+                      <span>Record from</span>
+                      <select id="recordSurfaceSelect">
+                        <option value="screen" selected>Entire screen</option>
+                        <option value="window">App window</option>
+                        <option value="browser">Browser tab</option>
+                      </select>
+                    </label>
+
+                    <label class="field">
+                      <span>Video quality</span>
+                      <select id="recordQualitySelect">
+                        <option value="crisp">Best quality</option>
+                        <option value="balanced" selected>Recommended</option>
+                        <option value="compact">Smaller file and faster</option>
+                      </select>
+                    </label>
+
+                    <label class="field">
+                      <span>Size</span>
+                      <select id="recordWidthSelect">
+                        <option value="original">Keep original size</option>
+                        <option value="2560">Large</option>
+                        <option value="1920" selected>Recommended</option>
+                        <option value="1280">Smaller and faster</option>
+                      </select>
+                    </label>
+
+                    <label class="field">
+                      <span>Smoothness</span>
+                      <select id="recordFpsSelect">
+                        <option value="60">Very smooth</option>
+                        <option value="30" selected>Recommended</option>
+                        <option value="24">Standard</option>
+                        <option value="15">Fastest</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div class="warning-banner" id="recorderWarning" hidden></div>
+                  <p class="helper-text" id="recorderHint">
+                    If MP4 is not available directly, the app will finish the MP4 after recording stops.
+                  </p>
+
+                  <div class="button-row">
+                    <button class="primary-button" id="startRecordingButton" type="button">
+                      Start recording
+                    </button>
+                    <button class="ghost-button" id="stopRecordingButton" type="button" disabled>
+                      Stop and save
+                    </button>
+                  </div>
+                </div>
+
+                <div class="detail-card recorder-status-card">
+                  <h3>Recording status</h3>
+                  <div class="recorder-meta">
+                    <div class="stat-card">
+                      <span class="stat-label">Status</span>
+                      <strong id="recorderStatusText">Ready</strong>
+                    </div>
+                    <div class="stat-card">
+                      <span class="stat-label">Elapsed</span>
+                      <strong id="recorderTimerText">00:00</strong>
+                    </div>
+                  </div>
+                  <p class="helper-text" id="recorderOutputMeta">
+                    Your recording stays on this device and will appear in the downloads area.
+                  </p>
+                  <video
+                    id="recorderPreview"
+                    class="recorder-preview"
+                    controls
+                    playsinline
+                    hidden
+                  ></video>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="simple-details">
+            <summary>See recent activity</summary>
+            <div class="simple-details-body">
+              <div class="panel-inline-head">
+                <div>
+                  <p class="panel-kicker">Recent activity</p>
+                  <h3 id="history-title">Past conversions</h3>
+                </div>
+                <button class="ghost-button" id="clearHistoryButton" type="button">
+                  Clear history
+                </button>
+              </div>
+              <ul class="history-list" id="historyList" aria-live="polite">
+                <li class="history-empty">No conversions have been recorded yet.</li>
+              </ul>
+            </div>
+          </details>
+
+          <details class="simple-details">
+            <summary>Privacy, device info, and workspace lock</summary>
+            <div class="simple-details-body">
+              <div class="detail-stack">
+                <article class="detail-card">
+                  <h3>Device check</h3>
+                  <div class="diagnostics-grid" id="diagnosticsGrid"></div>
+                  <p class="helper-text" id="deviceHint"></p>
+                </article>
+
+                <article class="detail-card">
+                  <h3>Private mode</h3>
+                  <label class="field">
+                    <span>Name shown in history</span>
+                    <input id="profileNameInput" type="text" maxlength="24" placeholder="Guest" />
+                  </label>
+                  <div class="auth-grid">
+                    <label class="field">
+                      <span>Set PIN</span>
+                      <input id="pinInput" type="password" inputmode="numeric" maxlength="12" placeholder="4 to 12 digits" />
+                    </label>
+
+                    <label class="field">
+                      <span>Enter PIN</span>
+                      <input id="unlockPinInput" type="password" inputmode="numeric" maxlength="12" placeholder="Enter PIN" />
+                    </label>
+                  </div>
+                  <p class="helper-text" id="authStatus">
+                    No PIN is set right now.
+                  </p>
+                  <div class="button-row">
+                    <button class="secondary-button" id="saveProfileButton" type="button">
+                      Save name
+                    </button>
+                    <button class="secondary-button" id="setPinButton" type="button">
+                      Set PIN
+                    </button>
+                    <button class="secondary-button" id="unlockButton" type="button">
+                      Unlock
+                    </button>
+                    <button class="secondary-button" id="lockButton" type="button">
+                      Lock
+                    </button>
+                    <button class="ghost-button" id="removePinButton" type="button">
+                      Remove PIN
+                    </button>
+                  </div>
+                </article>
+
+                <article class="detail-card">
+                  <h3>Usage summary</h3>
+                  <div class="stats-grid">
+                    <div class="stat-card">
+                      <span class="stat-label">Successful jobs</span>
+                      <strong id="statSuccess">0</strong>
+                    </div>
+                    <div class="stat-card">
+                      <span class="stat-label">Failed jobs</span>
+                      <strong id="statFailed">0</strong>
+                    </div>
+                    <div class="stat-card">
+                      <span class="stat-label">Data processed</span>
+                      <strong id="statBytes">0 B</strong>
+                    </div>
+                    <div class="stat-card">
+                      <span class="stat-label">Last activity</span>
+                      <strong id="statLastRun">Never</strong>
+                    </div>
+                  </div>
+                  <p class="helper-text" id="favoritePreset">
+                    This summary stays in your browser only.
+                  </p>
+                </article>
+              </div>
+            </div>
+          </details>
+        </section>
+      </main>
+    </div>
+
+    <script src="./vendor/pdf-lib.min.js"></script>
+    <script src="./vendor/jszip.min.js"></script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

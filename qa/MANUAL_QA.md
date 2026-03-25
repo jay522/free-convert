@@ -21,6 +21,7 @@ Use this checklist when validating free-converter with real files before release
 - Screen recording with `Entire screen` selected while switching between apps or windows
 - Screen recording with `App window` selected and confirm only that window is captured
 - Screen recording with `Browser tab` selected and confirm only that tab is captured
+- On macOS Chrome, confirm the share dialog can show `Entire Screen`, `Window`, and `Chrome Tab` choices when browser Screen Recording permission is enabled
 - Screen recording with optimization `off` and confirm fastest direct save
 - Screen recording with optimization `on` and confirm extra finishing step still produces a downloadable file
 - Screen recording with `compact`, `balanced`, and `crisp` quality

@@ -196,8 +196,8 @@
                         <span>Video quality</span>
                         <select id="videoProfileSelect">
                           <option value="archive">Best quality</option>
-                          <option value="balanced" selected>Recommended</option>
-                          <option value="compressed">Smaller file and faster</option>
+                          <option value="balanced" selected>Recommended (faster)</option>
+                          <option value="compressed">Smallest and fastest</option>
                         </select>
                       </label>
 
@@ -218,8 +218,8 @@
                           <select id="videoFpsSelect">
                             <option value="original">Keep original</option>
                             <option value="60">Very smooth</option>
-                            <option value="30" selected>Recommended</option>
-                            <option value="24">Movie-like</option>
+                            <option value="30">Very smooth standard</option>
+                            <option value="24" selected>Recommended (faster)</option>
                             <option value="20">Fastest</option>
                           </select>
                         </label>
@@ -456,8 +456,8 @@
                           <span>Video quality</span>
                           <select id="recordQualitySelect">
                             <option value="crisp">Best quality</option>
-                            <option value="balanced" selected>Recommended</option>
-                            <option value="compact">Smaller file and faster</option>
+                            <option value="balanced">Standard</option>
+                            <option value="compact" selected>Recommended (faster)</option>
                           </select>
                         </label>
 
@@ -466,8 +466,8 @@
                           <select id="recordWidthSelect">
                             <option value="original">Keep original size</option>
                             <option value="2560">Large</option>
-                            <option value="1920" selected>Recommended</option>
-                            <option value="1280">Smaller and faster</option>
+                            <option value="1920">Full HD</option>
+                            <option value="1280" selected>Recommended (faster)</option>
                           </select>
                         </label>
 
@@ -475,8 +475,8 @@
                           <span>Smoothness</span>
                           <select id="recordFpsSelect">
                             <option value="60">Very smooth</option>
-                            <option value="30" selected>Recommended</option>
-                            <option value="24">Standard</option>
+                            <option value="30">Standard smooth</option>
+                            <option value="24" selected>Recommended (faster)</option>
                             <option value="15">Fastest</option>
                           </select>
                         </label>
@@ -518,6 +518,7 @@
                     id="recorderPreview"
                     class="recorder-preview"
                     controls
+                    disablepictureinpicture
                     playsinline
                     hidden
                   ></video>
