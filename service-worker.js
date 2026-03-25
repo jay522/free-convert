@@ -1,4 +1,4 @@
-const CACHE_NAME = "free-converter-shell-v3";
+const CACHE_NAME = "free-converter-shell-v5";
 const APP_SHELL = [
   "./",
   "./index.html",

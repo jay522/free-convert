@@ -1226,11 +1226,23 @@ async function startScreenRecording() {
     captureSession = await createRecorderCaptureSession(settings);
     const stream = captureSession.stream;
 
-    const mediaRecorder = new MediaRecorder(stream, {
+    const recorderOptions = {
       mimeType: selectedFormat.captureMimeType,
       videoBitsPerSecond: settings.videoBitsPerSecond,
       ...(captureSession.hasAudio ? { audioBitsPerSecond: settings.audioBitsPerSecond } : {}),
-    });
+    };
+    let mediaRecorder = new MediaRecorder(stream, recorderOptions);
+    let recoveryAttempts = 0;
+    const maxRecoveryAttempts = 1;
+    const finalizeSession = {
+      captureMode: settings.captureMode,
+      desiredFormat: selectedFormat.id,
+      includeAudio: captureSession.hasAudio,
+      quality: settings.quality,
+      width: settings.maxWidth,
+      fps: settings.fps,
+      fileBaseName: captureSession.fileBaseName,
+    };
 
     clearDownloads();
     clearRecorderPreview();
@@ -1263,30 +1275,62 @@ async function startScreenRecording() {
       startedAt: state.recording.startedAt,
     };
 
-    mediaRecorder.addEventListener("dataavailable", (event) => {
-      if (event.data && event.data.size > 0) {
-        state.recording.chunks.push(event.data);
-      }
-    });
-
-    mediaRecorder.addEventListener("stop", () => {
-      void finalizeRecordingOutput({
-        captureMode: settings.captureMode,
-        desiredFormat: selectedFormat.id,
-        includeAudio: captureSession.hasAudio,
-        quality: settings.quality,
-        width: settings.maxWidth,
-        fps: settings.fps,
-        fileBaseName: state.recording.fileBaseName,
+    const attachRecorderListeners = (recorder) => {
+      recorder.addEventListener("dataavailable", (event) => {
+        if (event.data && event.data.size > 0) {
+          state.recording.chunks.push(event.data);
+        }
       });
-    }, { once: true });
 
-    mediaRecorder.addEventListener("error", () => {
-      void failRecordingJob("The browser reported an error while capturing the screen.");
-    }, { once: true });
+      recorder.addEventListener("stop", () => {
+        const liveVideoTrack = state.recording.stream?.getVideoTracks?.()[0] || null;
+        const canRecover =
+          state.recording.active &&
+          !state.recording.stopRequested &&
+          liveVideoTrack &&
+          liveVideoTrack.readyState === "live" &&
+          recoveryAttempts < maxRecoveryAttempts;
 
-    for (const track of stream.getTracks()) {
-      track.addEventListener("ended", () => {
+        if (canRecover) {
+          recoveryAttempts += 1;
+          try {
+            const recoveredRecorder = new MediaRecorder(state.recording.stream, recorderOptions);
+            mediaRecorder = recoveredRecorder;
+            state.recording.mediaRecorder = recoveredRecorder;
+            attachRecorderListeners(recoveredRecorder);
+            recoveredRecorder.start(1000);
+            setRecorderStatus("Recording continued after a browser interruption.");
+            return;
+          } catch {
+            // Fall through to finalize when recovery is not possible.
+          }
+        }
+
+        if (state.recording.active && !state.recording.stopRequested) {
+          const trackState = liveVideoTrack ? liveVideoTrack.readyState : "missing";
+          setRecorderStatus("Recording was interrupted by the browser. Saving captured part.");
+          elements.recorderOutputMeta.textContent = `Capture stream interrupted (video track: ${trackState}).`;
+        }
+
+        if (!state.recording.stopRequested) {
+          state.recording.stopRequested = true;
+        }
+
+        void finalizeRecordingOutput(finalizeSession);
+      }, { once: true });
+
+      recorder.addEventListener("error", () => {
+        void failRecordingJob("The browser reported an error while capturing the screen.");
+      }, { once: true });
+    };
+
+    attachRecorderListeners(mediaRecorder);
+
+    // Some browsers/platforms can end a microphone track unexpectedly.
+    // Keep recording alive until the captured video track ends.
+    const videoTrack = stream.getVideoTracks()[0];
+    if (videoTrack) {
+      videoTrack.addEventListener("ended", () => {
         if (state.recording.active && !state.recording.stopRequested) {
           void stopScreenRecording();
         }
@@ -1846,22 +1890,17 @@ function getActiveRecorderSurfaceMessage(requestedSurface, actualSurface) {
 }
 
 function buildDisplayMediaOptions(settings, mode = "advanced") {
-  const video = {
-    frameRate: {
-      ideal: Number(settings.fps),
-      max: Number(settings.fps),
-    },
-  };
-
-  if (settings.maxWidth !== "original") {
-    video.width = {
-      ideal: Number(settings.maxWidth),
-      max: Number(settings.maxWidth),
+  if (mode === "compat") {
+    return {
+      video: true,
+      audio: settings.requestSystemAudio,
     };
   }
 
   const options = {
-    video,
+    // Avoid strict constraints and forceful source hints here.
+    // These can cause immediate capture shutdown on some browser/macOS combos.
+    video: true,
     audio: settings.requestSystemAudio,
   };
 
@@ -1869,22 +1908,8 @@ function buildDisplayMediaOptions(settings, mode = "advanced") {
     return options;
   }
 
-  if (settings.captureSurface === "screen") {
-    video.displaySurface = "monitor";
-    options.monitorTypeSurfaces = "include";
-    options.surfaceSwitching = "include";
-    options.selfBrowserSurface = "exclude";
-  } else if (settings.captureSurface === "window") {
-    video.displaySurface = "window";
-    options.monitorTypeSurfaces = "exclude";
-    options.surfaceSwitching = "exclude";
-    options.selfBrowserSurface = "exclude";
+  if (settings.captureSurface === "window") {
     options.windowAudio = settings.requestSystemAudio ? "window" : "exclude";
-  } else {
-    video.displaySurface = "browser";
-    options.preferCurrentTab = true;
-    options.surfaceSwitching = "include";
-    options.selfBrowserSurface = "include";
   }
 
   if (settings.requestSystemAudio) {
@@ -1895,10 +1920,14 @@ function buildDisplayMediaOptions(settings, mode = "advanced") {
 }
 
 function getDisplayMediaOptionSets(settings) {
-  return [
-    buildDisplayMediaOptions(settings, "advanced"),
-    buildDisplayMediaOptions(settings, "basic"),
-  ];
+  const sets = [buildDisplayMediaOptions(settings, "compat")];
+  sets.push(buildDisplayMediaOptions(settings, "basic"));
+
+  if (settings.captureSurface === "browser") {
+    sets.push(buildDisplayMediaOptions(settings, "advanced"));
+  }
+
+  return sets;
 }
 
 async function requestDisplayStream(settings) {
@@ -2046,7 +2075,6 @@ async function createScreenCaptureSession(settings) {
       throw new Error("The browser did not provide a screen video track.");
     }
 
-    await applyPreferredTrackConstraints(videoTrack, settings);
     const actualSurface = getCapturedRecorderSurface(videoTrack, settings.captureSurface);
     let audioTracks = [];
     let audioNote = "";
@@ -2059,7 +2087,10 @@ async function createScreenCaptureSession(settings) {
     } else if (settings.audioMode === "microphone") {
       const microphoneStream = await requestMicrophoneStream();
       sourceStreams.push(microphoneStream);
-      audioTracks = microphoneStream.getAudioTracks();
+      const mixedAudio = await mixRecorderAudioStreams([microphoneStream]);
+      audioTracks = mixedAudio.tracks;
+      audioContext = mixedAudio.audioContext;
+      audioNote = mixedAudio.note;
     } else if (settings.audioMode === "system-microphone") {
       const microphoneStream = await requestMicrophoneStream();
       sourceStreams.push(microphoneStream);
@@ -2073,8 +2104,13 @@ async function createScreenCaptureSession(settings) {
         audioContext = mixedAudio.audioContext;
         audioNote = mixedAudio.note;
       } else if (microphoneTracks.length > 0) {
-        audioTracks = microphoneTracks;
+        const mixedMicrophone = await mixRecorderAudioStreams([microphoneStream]);
+        audioTracks = mixedMicrophone.tracks;
+        audioContext = mixedMicrophone.audioContext;
         audioNote = "System audio was not shared in the browser picker, so the recording is using microphone audio only.";
+        if (mixedMicrophone.note) {
+          audioNote = `${audioNote} ${mixedMicrophone.note}`;
+        }
       } else if (systemTracks.length > 0) {
         audioTracks = systemTracks;
         audioNote = "Microphone audio was not available, so the recording is using system audio only.";
@@ -2130,7 +2166,17 @@ async function createCameraCaptureSession(settings) {
   }
 
   await applyPreferredTrackConstraints(videoTrack, settings);
-  const audioTracks = cameraStream.getAudioTracks();
+  let audioTracks = cameraStream.getAudioTracks();
+  let audioContext = null;
+  let audioNote = "";
+
+  if (settings.audioMode === "microphone" && audioTracks.length > 0) {
+    const mixedAudio = await mixRecorderAudioStreams([cameraStream]);
+    audioTracks = mixedAudio.tracks;
+    audioContext = mixedAudio.audioContext;
+    audioNote = mixedAudio.note;
+  }
+
   const recorderStream = new MediaStream([videoTrack, ...audioTracks]);
   const liveMessage =
     settings.audioMode === "microphone"
@@ -2140,11 +2186,11 @@ async function createCameraCaptureSession(settings) {
   return {
     stream: recorderStream,
     sourceStreams: [cameraStream],
-    audioContext: null,
+    audioContext,
     captureSurface: "camera",
     captureLabel: "Camera",
     liveMessage,
-    audioNote: "",
+    audioNote,
     inputNames: ["Camera capture"],
     fileBaseName: buildRecordingFileBaseName("camera"),
     hasAudio: audioTracks.length > 0,
@@ -2175,12 +2221,27 @@ async function applyPreferredTrackConstraints(track, settings) {
     return;
   }
 
-  const constraints = {
-    frameRate: Number(settings.fps),
-  };
+  const constraints = {};
+  const frameRate = Number(settings.fps);
+  if (Number.isFinite(frameRate) && frameRate > 0) {
+    constraints.frameRate = {
+      ideal: frameRate,
+      max: frameRate,
+    };
+  }
 
   if (settings.maxWidth !== "original") {
-    constraints.width = Number(settings.maxWidth);
+    const width = Number(settings.maxWidth);
+    if (Number.isFinite(width) && width > 0) {
+      constraints.width = {
+        ideal: width,
+        max: width,
+      };
+    }
+  }
+
+  if (Object.keys(constraints).length === 0) {
+    return;
   }
 
   try {
