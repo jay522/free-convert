@@ -29,10 +29,18 @@
             </span>
           </a>
 
-          <div class="topbar-badges" aria-label="Platform highlights">
-            <span>No upload</span>
-            <span>Works on your device</span>
-            <span>Easy file tools</span>
+          <div class="topbar-tools">
+            <a class="topbar-tool-link" id="openScreenRecorderLink" href="#recorder-title">
+              Screen Recorder
+            </a>
+            <a class="topbar-tool-link" id="openDiffcheckerLink" href="#diffchecker-title">
+              Diffchecker
+            </a>
+            <div class="topbar-badges" aria-label="Platform highlights">
+              <span>No upload</span>
+              <span>Works on your device</span>
+              <span>Easy file tools</span>
+            </div>
           </div>
         </div>
 
@@ -108,7 +116,7 @@
           <div class="panel-head">
             <div>
               <p class="panel-kicker">Converter</p>
-              <h2 id="converter-title">Choose what you want to make</h2>
+              <h2 id="converter-title">Make your file in 3 easy steps</h2>
             </div>
             <span class="format-badge" id="formatBadge">WebM to MP4</span>
           </div>
@@ -117,8 +125,8 @@
             <section class="converter-step converter-step-workflow" aria-labelledby="step-workflow-title">
               <div class="step-head">
                 <span class="step-chip">Step 1</span>
-                <h3 id="step-workflow-title">Choose workflow</h3>
-                <p class="helper-text">Pick what you want to make.</p>
+                <h3 id="step-workflow-title">Pick what you want</h3>
+                <p class="helper-text">Tap one box below.</p>
               </div>
               <select id="presetSelect" aria-label="Select a conversion preset" hidden></select>
               <div class="workflow-grid" id="workflowGrid" aria-label="Choose a conversion workflow"></div>
@@ -128,7 +136,7 @@
               <div class="step-head">
                 <span class="step-chip">Step 2</span>
                 <h3 id="step-upload-title">Add your file</h3>
-                <p class="helper-text">Drop the file here or pick it from your device.</p>
+                <p class="helper-text">Drop the file here or tap Pick files.</p>
               </div>
               <button class="dropzone" id="dropZone" type="button">
                 <input id="fileInput" type="file" hidden />
@@ -265,7 +273,7 @@
               <div class="step-head">
                 <span class="step-chip">Step 3</span>
                 <h3 id="step-finish-title">Convert and download</h3>
-                <p class="helper-text">Start the job, then download the finished file here.</p>
+                <p class="helper-text">Tap the blue button. When done, tap Download.</p>
               </div>
               <div class="status-card" aria-live="polite">
                 <div class="status-row">
@@ -302,6 +310,122 @@
           </div>
         </section>
 
+        <section class="panel diff-panel" aria-labelledby="diffchecker-title">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Diffchecker</p>
+              <h2 id="diffchecker-title">Check differences and merge edits</h2>
+            </div>
+            <span class="format-badge" id="diffStatusBadge">No comparison yet</span>
+          </div>
+          <p class="helper-text">
+            Paste text or load files on both sides, compare changes, then merge line blocks left to right or right to left.
+          </p>
+
+          <div class="diff-controls">
+            <label class="checkbox-field diff-checkbox-field">
+              <input id="diffIgnoreWhitespaceCheckbox" type="checkbox" />
+              <span>Ignore extra spaces</span>
+            </label>
+            <label class="checkbox-field diff-checkbox-field">
+              <input id="diffIgnoreCaseCheckbox" type="checkbox" />
+              <span>Ignore letter case</span>
+            </label>
+            <button class="secondary-button" id="diffSwapButton" type="button">
+              Swap left and right
+            </button>
+            <button class="ghost-button" id="diffClearBothButton" type="button">
+              Clear both sides
+            </button>
+          </div>
+
+          <div class="diff-editor-grid">
+            <article class="detail-card diff-editor-card">
+              <div class="panel-inline-head">
+                <div>
+                  <p class="panel-kicker">Left side</p>
+                  <h3 id="diffLeftTitle">Original</h3>
+                </div>
+                <span class="count-badge" id="diffLeftMeta">0 lines</span>
+              </div>
+              <textarea
+                id="diffLeftInput"
+                class="diff-textarea"
+                spellcheck="false"
+                placeholder="Paste original text or upload a file."
+              ></textarea>
+              <div class="button-row">
+                <input id="diffLeftFileInput" type="file" hidden />
+                <button class="secondary-button" id="diffLeftUploadButton" type="button">
+                  Upload left file
+                </button>
+                <button class="ghost-button" id="diffLeftClearButton" type="button">
+                  Clear left
+                </button>
+              </div>
+            </article>
+
+            <article class="detail-card diff-editor-card">
+              <div class="panel-inline-head">
+                <div>
+                  <p class="panel-kicker">Right side</p>
+                  <h3 id="diffRightTitle">Updated</h3>
+                </div>
+                <span class="count-badge" id="diffRightMeta">0 lines</span>
+              </div>
+              <textarea
+                id="diffRightInput"
+                class="diff-textarea"
+                spellcheck="false"
+                placeholder="Paste updated text or upload a file."
+              ></textarea>
+              <div class="button-row">
+                <input id="diffRightFileInput" type="file" hidden />
+                <button class="secondary-button" id="diffRightUploadButton" type="button">
+                  Upload right file
+                </button>
+                <button class="ghost-button" id="diffRightClearButton" type="button">
+                  Clear right
+                </button>
+              </div>
+            </article>
+          </div>
+
+          <div class="diff-actions">
+            <button class="primary-button" id="runDiffButton" type="button">
+              Compare now
+            </button>
+            <button class="secondary-button" id="diffMergeLeftToRightAllButton" type="button">
+              Merge all left to right
+            </button>
+            <button class="secondary-button" id="diffMergeRightToLeftAllButton" type="button">
+              Merge all right to left
+            </button>
+            <button class="secondary-button" id="diffCopyLeftButton" type="button">
+              Copy left
+            </button>
+            <button class="secondary-button" id="diffCopyRightButton" type="button">
+              Copy right
+            </button>
+            <button class="ghost-button" id="diffDownloadLeftButton" type="button">
+              Download left
+            </button>
+            <button class="ghost-button" id="diffDownloadRightButton" type="button">
+              Download right
+            </button>
+          </div>
+
+          <div class="diff-summary-card">
+            <p class="helper-text" id="diffSummaryText">
+              Add content to both sides to see line-by-line differences.
+            </p>
+          </div>
+
+          <div class="diff-result-list" id="diffResultList" aria-live="polite">
+            <p class="history-empty">No differences to show yet.</p>
+          </div>
+        </section>
+
         <section class="panel extras-panel" aria-labelledby="extras-title">
           <div class="panel-head">
             <div>
@@ -313,7 +437,7 @@
             Most people can ignore the sections below and just use the converter above.
           </p>
 
-          <details class="simple-details">
+          <details class="simple-details" id="recorderDetails">
             <summary>Use the recorder</summary>
             <div class="simple-details-body">
               <div class="recorder-grid">

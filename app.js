@@ -8,6 +8,9 @@ const PDF_FAST_SAVE_OPTIONS = {
   useObjectStreams: false,
   objectsPerTick: 2048,
 };
+const DIFF_COMPARE_DEBOUNCE_MS = 220;
+const DIFF_MAX_DP_CELLS = 2_000_000;
+const DIFF_MAX_INLINE_CELLS = 60_000;
 
 const STORAGE_KEYS = {
   history: "free-converter-history-v1",
@@ -175,6 +178,19 @@ const state = {
     previewUrl: "",
   },
   videoSettingsTouched: false,
+  diff: {
+    compareTimerId: 0,
+    blocks: [],
+    leftLabel: "Original",
+    rightLabel: "Updated",
+    lastComparedLeft: "",
+    lastComparedRight: "",
+    scrollSyncing: false,
+    lastOptions: {
+      ignoreWhitespace: false,
+      ignoreCase: false,
+    },
+  },
 };
 
 const elements = {
@@ -192,6 +208,7 @@ const elements = {
   smartMatchActions: document.querySelector("#smartMatchActions"),
   helperText: document.querySelector("#helperText"),
   selectionSummary: document.querySelector("#selectionSummary"),
+  coachText: document.querySelector("#coachText"),
   countBadge: document.querySelector("#countBadge"),
   fileList: document.querySelector("#fileList"),
   statusText: document.querySelector("#statusText"),
@@ -262,6 +279,35 @@ const elements = {
   recorderTimerText: document.querySelector("#recorderTimerText"),
   recorderOutputMeta: document.querySelector("#recorderOutputMeta"),
   recorderPreview: document.querySelector("#recorderPreview"),
+  openScreenRecorderLink: document.querySelector("#openScreenRecorderLink"),
+  recorderDetails: document.querySelector("#recorderDetails"),
+  openDiffcheckerLink: document.querySelector("#openDiffcheckerLink"),
+  diffStatusBadge: document.querySelector("#diffStatusBadge"),
+  diffIgnoreWhitespaceCheckbox: document.querySelector("#diffIgnoreWhitespaceCheckbox"),
+  diffIgnoreCaseCheckbox: document.querySelector("#diffIgnoreCaseCheckbox"),
+  diffSwapButton: document.querySelector("#diffSwapButton"),
+  diffClearBothButton: document.querySelector("#diffClearBothButton"),
+  diffLeftInput: document.querySelector("#diffLeftInput"),
+  diffRightInput: document.querySelector("#diffRightInput"),
+  diffLeftFileInput: document.querySelector("#diffLeftFileInput"),
+  diffRightFileInput: document.querySelector("#diffRightFileInput"),
+  diffLeftUploadButton: document.querySelector("#diffLeftUploadButton"),
+  diffRightUploadButton: document.querySelector("#diffRightUploadButton"),
+  diffLeftClearButton: document.querySelector("#diffLeftClearButton"),
+  diffRightClearButton: document.querySelector("#diffRightClearButton"),
+  runDiffButton: document.querySelector("#runDiffButton"),
+  diffMergeLeftToRightAllButton: document.querySelector("#diffMergeLeftToRightAllButton"),
+  diffMergeRightToLeftAllButton: document.querySelector("#diffMergeRightToLeftAllButton"),
+  diffCopyLeftButton: document.querySelector("#diffCopyLeftButton"),
+  diffCopyRightButton: document.querySelector("#diffCopyRightButton"),
+  diffDownloadLeftButton: document.querySelector("#diffDownloadLeftButton"),
+  diffDownloadRightButton: document.querySelector("#diffDownloadRightButton"),
+  diffSummaryText: document.querySelector("#diffSummaryText"),
+  diffResultList: document.querySelector("#diffResultList"),
+  diffLeftMeta: document.querySelector("#diffLeftMeta"),
+  diffRightMeta: document.querySelector("#diffRightMeta"),
+  diffLeftTitle: document.querySelector("#diffLeftTitle"),
+  diffRightTitle: document.querySelector("#diffRightTitle"),
 };
 
 let recordingLibraryDbPromise = null;
@@ -291,6 +337,8 @@ async function boot() {
   renderRecorderControls();
   renderRecorderWarning();
   renderRecorderTimer();
+  initializeDiffchecker();
+  handleInitialDeepLink();
   await restoreRecordingLibrary();
   await registerServiceWorker();
   scheduleFfmpegWarmup();
@@ -482,11 +530,136 @@ function bindEvents() {
   elements.stopRecordingButton.addEventListener("click", () => {
     void stopScreenRecording();
   });
+  elements.openScreenRecorderLink?.addEventListener("click", (event) => {
+    event.preventDefault();
+    revealRecorderPanel({ focusStartButton: true });
+  });
+
+  if (hasDiffchecker()) {
+    elements.openDiffcheckerLink?.addEventListener("click", (event) => {
+      event.preventDefault();
+      document.querySelector("#diffchecker-title")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      window.setTimeout(() => {
+        elements.diffLeftInput?.focus();
+      }, 220);
+    });
+    elements.diffLeftUploadButton.addEventListener("click", () => {
+      elements.diffLeftFileInput.click();
+    });
+    elements.diffRightUploadButton.addEventListener("click", () => {
+      elements.diffRightFileInput.click();
+    });
+    elements.diffLeftFileInput.addEventListener("change", () => {
+      void handleDiffFileUpload("left");
+    });
+    elements.diffRightFileInput.addEventListener("change", () => {
+      void handleDiffFileUpload("right");
+    });
+    elements.diffLeftInput.addEventListener("input", () => {
+      updateDiffSideMeta("left");
+      scheduleDiffComparison();
+    });
+    elements.diffRightInput.addEventListener("input", () => {
+      updateDiffSideMeta("right");
+      scheduleDiffComparison();
+    });
+    elements.diffLeftInput.addEventListener("scroll", () => {
+      syncDiffEditorScroll("left");
+    }, { passive: true });
+    elements.diffRightInput.addEventListener("scroll", () => {
+      syncDiffEditorScroll("right");
+    }, { passive: true });
+    elements.diffIgnoreWhitespaceCheckbox.addEventListener("change", scheduleDiffComparison);
+    elements.diffIgnoreCaseCheckbox.addEventListener("change", scheduleDiffComparison);
+    elements.diffSwapButton.addEventListener("click", swapDiffSides);
+    elements.diffClearBothButton.addEventListener("click", clearDiffBothSides);
+    elements.diffLeftClearButton.addEventListener("click", () => {
+      clearDiffSide("left");
+    });
+    elements.diffRightClearButton.addEventListener("click", () => {
+      clearDiffSide("right");
+    });
+    elements.runDiffButton.addEventListener("click", () => {
+      runDiffComparison();
+    });
+    elements.diffMergeLeftToRightAllButton.addEventListener("click", () => {
+      mergeDiffAll("left-to-right");
+    });
+    elements.diffMergeRightToLeftAllButton.addEventListener("click", () => {
+      mergeDiffAll("right-to-left");
+    });
+    elements.diffCopyLeftButton?.addEventListener("click", () => {
+      void copyDiffSide("left");
+    });
+    elements.diffCopyRightButton?.addEventListener("click", () => {
+      void copyDiffSide("right");
+    });
+    elements.diffDownloadLeftButton?.addEventListener("click", () => {
+      downloadDiffSide("left");
+    });
+    elements.diffDownloadRightButton?.addEventListener("click", () => {
+      downloadDiffSide("right");
+    });
+    elements.diffResultList.addEventListener("click", (event) => {
+      if (!(event.target instanceof Element)) {
+        return;
+      }
+
+      const button = event.target.closest("[data-diff-merge]");
+      if (!(button instanceof HTMLButtonElement) || button.disabled) {
+        return;
+      }
+
+      const blockIndex = Number(button.dataset.diffBlockIndex);
+      const direction = button.dataset.diffMerge;
+      if (!Number.isFinite(blockIndex)) {
+        return;
+      }
+
+      if (direction === "left-to-right" || direction === "right-to-left") {
+        mergeDiffBlock(direction, blockIndex);
+      }
+    });
+  }
+}
+
+function revealRecorderPanel(options = {}) {
+  const smooth = options.smooth !== false;
+  const focusStartButton = options.focusStartButton === true;
+
+  if (elements.recorderDetails) {
+    elements.recorderDetails.open = true;
+  }
+
+  document.querySelector("#recorder-title")?.scrollIntoView({
+    behavior: smooth ? "smooth" : "auto",
+    block: "start",
+  });
+
+  if (focusStartButton) {
+    window.setTimeout(() => {
+      elements.startRecordingButton?.focus();
+    }, 220);
+  }
+}
+
+function handleInitialDeepLink() {
+  const hash = String(window.location.hash || "").toLowerCase();
+  if (hash === "#recorder-title" || hash === "#recorderdetails") {
+    revealRecorderPanel({ smooth: false, focusStartButton: false });
+  }
 }
 
 function applyPreset(presetKey) {
   setActivePreset(presetKey);
   clearSelectedFiles();
+  if (!isWorkspaceLocked()) {
+    const preset = presets[state.presetKey];
+    setCoachMessage(`Great. Step 2: add your ${preset.minimumFiles > 1 ? "files" : "file"} in the middle section.`);
+  }
 }
 
 function setActivePreset(presetKey) {
@@ -511,6 +684,7 @@ function setActivePreset(presetKey) {
   renderWorkflowCards();
   renderSelectionSummary();
   renderVideoWarning();
+  setCoachMessage(`Great. Step 2: add your ${preset.minimumFiles > 1 ? "files" : "file"} in the middle section.`);
   syncControlAvailability();
   scheduleFfmpegWarmup();
 }
@@ -528,6 +702,1115 @@ function resetOptionInputs() {
 function updateQualityLabels() {
   elements.jpgQualityLabel.textContent = `${elements.jpgQualityRange.value}%`;
   elements.webpQualityLabel.textContent = `${elements.webpQualityRange.value}%`;
+}
+
+function hasDiffchecker() {
+  return Boolean(
+    elements.diffLeftInput &&
+    elements.diffRightInput &&
+    elements.diffResultList &&
+    elements.diffSummaryText &&
+    elements.diffStatusBadge,
+  );
+}
+
+function initializeDiffchecker() {
+  if (!hasDiffchecker()) {
+    return;
+  }
+
+  state.diff.leftLabel = elements.diffLeftTitle?.textContent?.trim() || "Original";
+  state.diff.rightLabel = elements.diffRightTitle?.textContent?.trim() || "Updated";
+  applyDiffSideLabel("left", state.diff.leftLabel);
+  applyDiffSideLabel("right", state.diff.rightLabel);
+  updateDiffSideMeta("left");
+  updateDiffSideMeta("right");
+  setDiffStatus(
+    "No comparison yet",
+    "Add content to both sides to see line-by-line differences.",
+  );
+  renderDiffBlocks([]);
+}
+
+function getDiffSideValue(side) {
+  return side === "left" ? elements.diffLeftInput.value : elements.diffRightInput.value;
+}
+
+function setDiffSideValue(side, value) {
+  if (side === "left") {
+    elements.diffLeftInput.value = value;
+  } else {
+    elements.diffRightInput.value = value;
+  }
+}
+
+function getDiffDefaultLabel(side) {
+  return side === "left" ? "Original" : "Updated";
+}
+
+function applyDiffSideLabel(side, label) {
+  const trimmed = String(label || "").trim() || getDiffDefaultLabel(side);
+
+  if (side === "left") {
+    state.diff.leftLabel = trimmed;
+    if (elements.diffLeftTitle) {
+      elements.diffLeftTitle.textContent = trimmed;
+    }
+  } else {
+    state.diff.rightLabel = trimmed;
+    if (elements.diffRightTitle) {
+      elements.diffRightTitle.textContent = trimmed;
+    }
+  }
+}
+
+function getDiffLinesFromText(text) {
+  const normalized = String(text || "").replace(/\r\n?/g, "\n");
+  if (!normalized) {
+    return [];
+  }
+  return normalized.split("\n");
+}
+
+function joinDiffLines(lines) {
+  return lines.join("\n");
+}
+
+function formatDiffLineCount(count) {
+  return `${count} line${count === 1 ? "" : "s"}`;
+}
+
+function updateDiffSideMeta(side) {
+  if (!hasDiffchecker()) {
+    return;
+  }
+
+  const lines = getDiffLinesFromText(getDiffSideValue(side)).length;
+  if (side === "left") {
+    elements.diffLeftMeta.textContent = formatDiffLineCount(lines);
+  } else {
+    elements.diffRightMeta.textContent = formatDiffLineCount(lines);
+  }
+}
+
+function setDiffStatus(badgeText, summaryText) {
+  if (!hasDiffchecker()) {
+    return;
+  }
+
+  elements.diffStatusBadge.textContent = badgeText;
+  elements.diffSummaryText.textContent = summaryText;
+}
+
+function syncDiffEditorScroll(sourceSide) {
+  if (!hasDiffchecker() || state.diff.scrollSyncing) {
+    return;
+  }
+
+  const source = sourceSide === "left" ? elements.diffLeftInput : elements.diffRightInput;
+  const target = sourceSide === "left" ? elements.diffRightInput : elements.diffLeftInput;
+  const sourceRange = source.scrollHeight - source.clientHeight;
+  const targetRange = target.scrollHeight - target.clientHeight;
+
+  if (sourceRange <= 0 || targetRange <= 0) {
+    return;
+  }
+
+  const ratio = source.scrollTop / sourceRange;
+  state.diff.scrollSyncing = true;
+  target.scrollTop = Math.round(targetRange * ratio);
+  state.diff.scrollSyncing = false;
+}
+
+function buildDiffDownloadName(side) {
+  const rawLabel = side === "left" ? state.diff.leftLabel : state.diff.rightLabel;
+  const base = stripExtension(String(rawLabel || "").trim())
+    .replace(/[^a-z0-9-_]+/gi, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase();
+  const safeBase = base || (side === "left" ? "diff-left" : "diff-right");
+  return `${safeBase}.txt`;
+}
+
+async function copyDiffSide(side) {
+  if (!hasDiffchecker()) {
+    return;
+  }
+
+  const value = getDiffSideValue(side);
+  const sideLabel = side === "left" ? "left" : "right";
+
+  if (!value) {
+    setDiffStatus("Nothing to copy", `The ${sideLabel} side is empty.`);
+    return;
+  }
+
+  try {
+    if (!navigator.clipboard?.writeText) {
+      throw new Error("Clipboard API unavailable.");
+    }
+
+    await navigator.clipboard.writeText(value);
+    setDiffStatus("Copied", `${sideLabel === "left" ? "Left" : "Right"} side copied.`);
+  } catch {
+    const helper = document.createElement("textarea");
+    helper.value = value;
+    helper.setAttribute("readonly", "readonly");
+    helper.style.position = "fixed";
+    helper.style.opacity = "0";
+    document.body.append(helper);
+    helper.select();
+    const ok = document.execCommand("copy");
+    helper.remove();
+    setDiffStatus(
+      ok ? "Copied" : "Copy failed",
+      ok
+        ? `${sideLabel === "left" ? "Left" : "Right"} side copied.`
+        : "Clipboard access was blocked by this browser.",
+    );
+  }
+}
+
+function downloadDiffSide(side) {
+  if (!hasDiffchecker()) {
+    return;
+  }
+
+  const value = getDiffSideValue(side);
+  if (!value) {
+    setDiffStatus(
+      "Nothing to download",
+      `The ${side === "left" ? "left" : "right"} side is empty.`,
+    );
+    return;
+  }
+
+  triggerBlobDownload(
+    buildDiffDownloadName(side),
+    new Blob([value], { type: "text/plain;charset=utf-8" }),
+  );
+  setDiffStatus(
+    "Downloaded",
+    `${side === "left" ? "Left" : "Right"} side downloaded as a text file.`,
+  );
+}
+
+function scheduleDiffComparison() {
+  if (!hasDiffchecker()) {
+    return;
+  }
+
+  if (state.diff.compareTimerId) {
+    window.clearTimeout(state.diff.compareTimerId);
+  }
+
+  state.diff.compareTimerId = window.setTimeout(() => {
+    state.diff.compareTimerId = 0;
+    runDiffComparison({ quiet: true });
+  }, DIFF_COMPARE_DEBOUNCE_MS);
+}
+
+async function handleDiffFileUpload(side) {
+  if (!hasDiffchecker()) {
+    return;
+  }
+
+  const fileInput = side === "left" ? elements.diffLeftFileInput : elements.diffRightFileInput;
+  const [file] = Array.from(fileInput.files || []);
+
+  if (!file) {
+    return;
+  }
+
+  try {
+    const text = await file.text();
+    if (text.includes("\u0000")) {
+      throw new Error("This file looks binary. Use a plain text file.");
+    }
+
+    setDiffSideValue(side, text.replace(/\r\n?/g, "\n"));
+    applyDiffSideLabel(side, file.name || getDiffDefaultLabel(side));
+    updateDiffSideMeta(side);
+    runDiffComparison({ quiet: true });
+  } catch (error) {
+    setDiffStatus(
+      "File read failed",
+      error instanceof Error ? error.message : "Could not read this file as text.",
+    );
+  } finally {
+    fileInput.value = "";
+  }
+}
+
+function clearDiffSide(side) {
+  if (!hasDiffchecker()) {
+    return;
+  }
+
+  setDiffSideValue(side, "");
+  applyDiffSideLabel(side, getDiffDefaultLabel(side));
+  updateDiffSideMeta(side);
+  runDiffComparison({ quiet: true });
+}
+
+function clearDiffBothSides() {
+  if (!hasDiffchecker()) {
+    return;
+  }
+
+  if (state.diff.compareTimerId) {
+    window.clearTimeout(state.diff.compareTimerId);
+    state.diff.compareTimerId = 0;
+  }
+
+  setDiffSideValue("left", "");
+  setDiffSideValue("right", "");
+  applyDiffSideLabel("left", getDiffDefaultLabel("left"));
+  applyDiffSideLabel("right", getDiffDefaultLabel("right"));
+  updateDiffSideMeta("left");
+  updateDiffSideMeta("right");
+  state.diff.blocks = [];
+  state.diff.lastComparedLeft = "";
+  state.diff.lastComparedRight = "";
+  setDiffStatus(
+    "No comparison yet",
+    "Add content to both sides to see line-by-line differences.",
+  );
+  renderDiffBlocks([]);
+}
+
+function swapDiffSides() {
+  if (!hasDiffchecker()) {
+    return;
+  }
+
+  const leftValue = getDiffSideValue("left");
+  const rightValue = getDiffSideValue("right");
+  const leftLabel = state.diff.leftLabel;
+  const rightLabel = state.diff.rightLabel;
+
+  setDiffSideValue("left", rightValue);
+  setDiffSideValue("right", leftValue);
+  applyDiffSideLabel("left", rightLabel);
+  applyDiffSideLabel("right", leftLabel);
+  updateDiffSideMeta("left");
+  updateDiffSideMeta("right");
+  runDiffComparison({ quiet: true });
+}
+
+function normalizeDiffLine(line, options) {
+  let normalized = String(line);
+
+  if (options.ignoreWhitespace) {
+    normalized = normalized.replace(/\s+/g, " ").trim();
+  }
+
+  if (options.ignoreCase) {
+    normalized = normalized.toLowerCase();
+  }
+
+  return normalized;
+}
+
+function buildGreedyDiffOperations(leftLines, rightLines, normalizedLeft, normalizedRight) {
+  const operations = [];
+  let leftIndex = 0;
+  let rightIndex = 0;
+
+  while (leftIndex < leftLines.length && rightIndex < rightLines.length) {
+    if (normalizedLeft[leftIndex] === normalizedRight[rightIndex]) {
+      operations.push({ type: "equal", value: leftLines[leftIndex] });
+      leftIndex += 1;
+      rightIndex += 1;
+      continue;
+    }
+
+    if (
+      leftIndex + 1 < leftLines.length &&
+      normalizedLeft[leftIndex + 1] === normalizedRight[rightIndex]
+    ) {
+      operations.push({ type: "delete", value: leftLines[leftIndex] });
+      leftIndex += 1;
+      continue;
+    }
+
+    if (
+      rightIndex + 1 < rightLines.length &&
+      normalizedLeft[leftIndex] === normalizedRight[rightIndex + 1]
+    ) {
+      operations.push({ type: "insert", value: rightLines[rightIndex] });
+      rightIndex += 1;
+      continue;
+    }
+
+    operations.push({ type: "delete", value: leftLines[leftIndex] });
+    operations.push({ type: "insert", value: rightLines[rightIndex] });
+    leftIndex += 1;
+    rightIndex += 1;
+  }
+
+  while (leftIndex < leftLines.length) {
+    operations.push({ type: "delete", value: leftLines[leftIndex] });
+    leftIndex += 1;
+  }
+
+  while (rightIndex < rightLines.length) {
+    operations.push({ type: "insert", value: rightLines[rightIndex] });
+    rightIndex += 1;
+  }
+
+  return operations;
+}
+
+function buildLcsDiffOperations(leftLines, rightLines, normalizedLeft, normalizedRight) {
+  const leftLength = leftLines.length;
+  const rightLength = rightLines.length;
+  const width = rightLength + 1;
+  const directions = new Uint8Array((leftLength + 1) * (rightLength + 1));
+  let previousRow = new Uint32Array(width);
+  let currentRow = new Uint32Array(width);
+
+  for (let leftIndex = 1; leftIndex <= leftLength; leftIndex += 1) {
+    currentRow[0] = 0;
+
+    for (let rightIndex = 1; rightIndex <= rightLength; rightIndex += 1) {
+      const directionIndex = leftIndex * width + rightIndex;
+
+      if (normalizedLeft[leftIndex - 1] === normalizedRight[rightIndex - 1]) {
+        currentRow[rightIndex] = previousRow[rightIndex - 1] + 1;
+        directions[directionIndex] = 1;
+      } else if (previousRow[rightIndex] >= currentRow[rightIndex - 1]) {
+        currentRow[rightIndex] = previousRow[rightIndex];
+        directions[directionIndex] = 2;
+      } else {
+        currentRow[rightIndex] = currentRow[rightIndex - 1];
+        directions[directionIndex] = 3;
+      }
+    }
+
+    const swap = previousRow;
+    previousRow = currentRow;
+    currentRow = swap;
+  }
+
+  const operations = [];
+  let leftIndex = leftLength;
+  let rightIndex = rightLength;
+
+  while (leftIndex > 0 || rightIndex > 0) {
+    const directionIndex = leftIndex * width + rightIndex;
+    const direction = directions[directionIndex];
+
+    if (leftIndex > 0 && rightIndex > 0 && direction === 1) {
+      operations.push({ type: "equal", value: leftLines[leftIndex - 1] });
+      leftIndex -= 1;
+      rightIndex -= 1;
+      continue;
+    }
+
+    if (leftIndex > 0 && (rightIndex === 0 || direction === 2)) {
+      operations.push({ type: "delete", value: leftLines[leftIndex - 1] });
+      leftIndex -= 1;
+      continue;
+    }
+
+    operations.push({ type: "insert", value: rightLines[rightIndex - 1] });
+    rightIndex -= 1;
+  }
+
+  operations.reverse();
+  return operations;
+}
+
+function buildDiffOperations(leftLines, rightLines, options) {
+  const normalizedLeft = leftLines.map((line) => normalizeDiffLine(line, options));
+  const normalizedRight = rightLines.map((line) => normalizeDiffLine(line, options));
+  const operations = [];
+  let usedGreedyFallback = false;
+  let prefixLength = 0;
+
+  while (
+    prefixLength < leftLines.length &&
+    prefixLength < rightLines.length &&
+    normalizedLeft[prefixLength] === normalizedRight[prefixLength]
+  ) {
+    operations.push({ type: "equal", value: leftLines[prefixLength] });
+    prefixLength += 1;
+  }
+
+  let leftSuffixIndex = leftLines.length - 1;
+  let rightSuffixIndex = rightLines.length - 1;
+  const suffixOperations = [];
+
+  while (
+    leftSuffixIndex >= prefixLength &&
+    rightSuffixIndex >= prefixLength &&
+    normalizedLeft[leftSuffixIndex] === normalizedRight[rightSuffixIndex]
+  ) {
+    suffixOperations.push({ type: "equal", value: leftLines[leftSuffixIndex] });
+    leftSuffixIndex -= 1;
+    rightSuffixIndex -= 1;
+  }
+
+  const middleLeft = leftLines.slice(prefixLength, leftSuffixIndex + 1);
+  const middleRight = rightLines.slice(prefixLength, rightSuffixIndex + 1);
+  const middleNormalizedLeft = normalizedLeft.slice(prefixLength, leftSuffixIndex + 1);
+  const middleNormalizedRight = normalizedRight.slice(prefixLength, rightSuffixIndex + 1);
+  const middleCellCount = middleLeft.length * middleRight.length;
+  const middleOperations = middleCellCount > DIFF_MAX_DP_CELLS
+    ? buildGreedyDiffOperations(
+        middleLeft,
+        middleRight,
+        middleNormalizedLeft,
+        middleNormalizedRight,
+      )
+    : buildLcsDiffOperations(
+        middleLeft,
+        middleRight,
+        middleNormalizedLeft,
+        middleNormalizedRight,
+      );
+
+  if (middleCellCount > DIFF_MAX_DP_CELLS) {
+    usedGreedyFallback = true;
+  }
+
+  operations.push(...middleOperations);
+  operations.push(...suffixOperations.reverse());
+  return {
+    operations,
+    usedGreedyFallback,
+  };
+}
+
+function getDiffBlockKind(block) {
+  if (block.leftLines.length === 0 && block.rightLines.length > 0) {
+    return "added";
+  }
+
+  if (block.rightLines.length === 0 && block.leftLines.length > 0) {
+    return "removed";
+  }
+
+  return "changed";
+}
+
+function buildDiffBlocks(operations) {
+  const blocks = [];
+  let leftCursor = 0;
+  let rightCursor = 0;
+  let openBlock = null;
+
+  const closeBlock = () => {
+    if (!openBlock) {
+      return;
+    }
+
+    openBlock.kind = getDiffBlockKind(openBlock);
+    blocks.push(openBlock);
+    openBlock = null;
+  };
+
+  for (const operation of operations) {
+    if (operation.type === "equal") {
+      closeBlock();
+      leftCursor += 1;
+      rightCursor += 1;
+      continue;
+    }
+
+    if (!openBlock) {
+      openBlock = {
+        leftStart: leftCursor,
+        leftEnd: leftCursor,
+        rightStart: rightCursor,
+        rightEnd: rightCursor,
+        leftLines: [],
+        rightLines: [],
+      };
+    }
+
+    if (operation.type === "delete") {
+      openBlock.leftLines.push(operation.value);
+      leftCursor += 1;
+      openBlock.leftEnd = leftCursor;
+      openBlock.rightEnd = rightCursor;
+      continue;
+    }
+
+    if (operation.type === "insert") {
+      openBlock.rightLines.push(operation.value);
+      rightCursor += 1;
+      openBlock.leftEnd = leftCursor;
+      openBlock.rightEnd = rightCursor;
+    }
+  }
+
+  closeBlock();
+  return blocks;
+}
+
+function getDiffOptions() {
+  return {
+    ignoreWhitespace: Boolean(elements.diffIgnoreWhitespaceCheckbox?.checked),
+    ignoreCase: Boolean(elements.diffIgnoreCaseCheckbox?.checked),
+  };
+}
+
+function formatDiffOptionsSummary(options) {
+  const active = [];
+
+  if (options.ignoreWhitespace) {
+    active.push("extra spaces");
+  }
+
+  if (options.ignoreCase) {
+    active.push("letter case");
+  }
+
+  if (active.length === 0) {
+    return "";
+  }
+
+  return ` (ignoring ${active.join(" and ")})`;
+}
+
+function createDiffResult(leftText, rightText, options) {
+  const leftLines = getDiffLinesFromText(leftText);
+  const rightLines = getDiffLinesFromText(rightText);
+  const diffResult = buildDiffOperations(leftLines, rightLines, options);
+  const operations = diffResult.operations;
+  const blocks = buildDiffBlocks(operations);
+  const insertedLines = operations.filter((operation) => operation.type === "insert").length;
+  const removedLines = operations.filter((operation) => operation.type === "delete").length;
+  const changedBlocks = blocks.filter(
+    (block) => block.leftLines.length > 0 && block.rightLines.length > 0,
+  ).length;
+
+  return {
+    options,
+    leftLines,
+    rightLines,
+    operations,
+    blocks,
+    insertedLines,
+    removedLines,
+    changedBlocks,
+    usedGreedyFallback: diffResult.usedGreedyFallback,
+  };
+}
+
+function formatDiffRange(start, end) {
+  if (end <= start) {
+    return "none";
+  }
+
+  const first = start + 1;
+  const last = end;
+  return first === last ? String(first) : `${first}-${last}`;
+}
+
+function getDiffBlockTitle(kind, index) {
+  if (kind === "added") {
+    return `Added block ${index + 1}`;
+  }
+
+  if (kind === "removed") {
+    return `Removed block ${index + 1}`;
+  }
+
+  return `Changed block ${index + 1}`;
+}
+
+function splitInlineTokens(line) {
+  return String(line).match(/\s+|[^\s]+/g) || [];
+}
+
+function normalizeInlineToken(token, options) {
+  let normalized = String(token);
+
+  if (options.ignoreWhitespace && /^\s+$/.test(normalized)) {
+    normalized = " ";
+  }
+
+  if (options.ignoreCase) {
+    normalized = normalized.toLowerCase();
+  }
+
+  return normalized;
+}
+
+function buildInlineTokenOperations(leftTokens, rightTokens, options) {
+  const normalizedLeft = leftTokens.map((token) => normalizeInlineToken(token, options));
+  const normalizedRight = rightTokens.map((token) => normalizeInlineToken(token, options));
+  const cellCount = leftTokens.length * rightTokens.length;
+
+  if (cellCount > DIFF_MAX_INLINE_CELLS) {
+    return buildGreedyDiffOperations(leftTokens, rightTokens, normalizedLeft, normalizedRight);
+  }
+
+  return buildLcsDiffOperations(leftTokens, rightTokens, normalizedLeft, normalizedRight);
+}
+
+function appendInlineFragment(fragments, text, changed) {
+  if (!text) {
+    return;
+  }
+
+  const previous = fragments[fragments.length - 1];
+  if (previous && previous.changed === changed) {
+    previous.text += text;
+    return;
+  }
+
+  fragments.push({ text, changed });
+}
+
+function buildInlineSegments(leftLine, rightLine, options) {
+  if (normalizeDiffLine(leftLine, options) === normalizeDiffLine(rightLine, options)) {
+    return {
+      leftSegments: [{ text: leftLine, changed: false }],
+      rightSegments: [{ text: rightLine, changed: false }],
+    };
+  }
+
+  const leftTokens = splitInlineTokens(leftLine);
+  const rightTokens = splitInlineTokens(rightLine);
+  const operations = buildInlineTokenOperations(leftTokens, rightTokens, options);
+  const leftSegments = [];
+  const rightSegments = [];
+  let leftIndex = 0;
+  let rightIndex = 0;
+
+  for (const operation of operations) {
+    if (operation.type === "equal") {
+      appendInlineFragment(leftSegments, leftTokens[leftIndex] || "", false);
+      appendInlineFragment(rightSegments, rightTokens[rightIndex] || "", false);
+      leftIndex += 1;
+      rightIndex += 1;
+      continue;
+    }
+
+    if (operation.type === "delete") {
+      appendInlineFragment(leftSegments, leftTokens[leftIndex] || "", true);
+      leftIndex += 1;
+      continue;
+    }
+
+    appendInlineFragment(rightSegments, rightTokens[rightIndex] || "", true);
+    rightIndex += 1;
+  }
+
+  return {
+    leftSegments,
+    rightSegments,
+  };
+}
+
+function createDiffLineRow(lineNumber, segments, options = {}) {
+  const row = document.createElement("div");
+  row.className = "diff-line";
+
+  if (options.placeholder) {
+    row.classList.add("is-placeholder");
+  }
+
+  if (options.changed) {
+    row.classList.add("is-changed");
+  }
+
+  const lineNumberNode = document.createElement("span");
+  lineNumberNode.className = "diff-line-number";
+  lineNumberNode.textContent = lineNumber > 0 ? String(lineNumber) : "";
+
+  const contentNode = document.createElement("span");
+  contentNode.className = "diff-line-content";
+  const normalizedSegments = Array.isArray(segments) ? segments : [];
+
+  if (normalizedSegments.length === 0) {
+    contentNode.textContent = "\u00a0";
+  } else {
+    for (const segment of normalizedSegments) {
+      const text = String(segment?.text ?? "");
+      const fragment = document.createElement("span");
+      fragment.className = segment?.changed
+        ? "diff-fragment is-changed"
+        : "diff-fragment";
+      fragment.textContent = text || "\u00a0";
+      contentNode.append(fragment);
+    }
+  }
+
+  row.append(lineNumberNode, contentNode);
+  return row;
+}
+
+function createDiffSide(label, rows, emptyHint) {
+  const side = document.createElement("section");
+  side.className = "diff-side";
+
+  const sideLabel = document.createElement("p");
+  sideLabel.className = "diff-side-label";
+  sideLabel.textContent = label;
+
+  const body = document.createElement("div");
+  body.className = "diff-side-body";
+
+  if (rows.length === 0) {
+    side.classList.add("is-empty");
+    body.append(createDiffLineRow(0, [{ text: emptyHint, changed: false }], { placeholder: true }));
+  } else {
+    rows.forEach((row) => {
+      body.append(createDiffLineRow(row.lineNumber, row.segments, row));
+    });
+  }
+
+  side.append(sideLabel, body);
+  return {
+    side,
+    body,
+  };
+}
+
+function buildDiffRowsForBlock(block, options) {
+  const leftRows = [];
+  const rightRows = [];
+
+  if (block.kind === "changed") {
+    const totalRows = Math.max(block.leftLines.length, block.rightLines.length);
+    let leftLineOffset = 0;
+    let rightLineOffset = 0;
+
+    for (let index = 0; index < totalRows; index += 1) {
+      const leftLine = block.leftLines[index];
+      const rightLine = block.rightLines[index];
+      const hasLeft = typeof leftLine === "string";
+      const hasRight = typeof rightLine === "string";
+      const leftLineNumber = hasLeft ? block.leftStart + leftLineOffset + 1 : 0;
+      const rightLineNumber = hasRight ? block.rightStart + rightLineOffset + 1 : 0;
+
+      if (hasLeft) {
+        leftLineOffset += 1;
+      }
+
+      if (hasRight) {
+        rightLineOffset += 1;
+      }
+
+      if (hasLeft && hasRight) {
+        const inline = buildInlineSegments(leftLine, rightLine, options);
+        const leftChanged = inline.leftSegments.some((segment) => segment.changed);
+        const rightChanged = inline.rightSegments.some((segment) => segment.changed);
+        leftRows.push({
+          lineNumber: leftLineNumber,
+          segments: inline.leftSegments,
+          changed: leftChanged,
+          placeholder: false,
+        });
+        rightRows.push({
+          lineNumber: rightLineNumber,
+          segments: inline.rightSegments,
+          changed: rightChanged,
+          placeholder: false,
+        });
+      } else if (hasLeft) {
+        leftRows.push({
+          lineNumber: leftLineNumber,
+          segments: [{ text: leftLine, changed: true }],
+          changed: true,
+          placeholder: false,
+        });
+        rightRows.push({
+          lineNumber: 0,
+          segments: [],
+          changed: false,
+          placeholder: true,
+        });
+      } else {
+        leftRows.push({
+          lineNumber: 0,
+          segments: [],
+          changed: false,
+          placeholder: true,
+        });
+        rightRows.push({
+          lineNumber: rightLineNumber,
+          segments: [{ text: rightLine || "", changed: true }],
+          changed: true,
+          placeholder: false,
+        });
+      }
+    }
+
+    return {
+      leftRows,
+      rightRows,
+    };
+  }
+
+  if (block.kind === "removed") {
+    block.leftLines.forEach((line, index) => {
+      leftRows.push({
+        lineNumber: block.leftStart + index + 1,
+        segments: [{ text: line, changed: true }],
+        changed: true,
+        placeholder: false,
+      });
+      rightRows.push({
+        lineNumber: 0,
+        segments: [],
+        changed: false,
+        placeholder: true,
+      });
+    });
+
+    return {
+      leftRows,
+      rightRows,
+    };
+  }
+
+  block.rightLines.forEach((line, index) => {
+    leftRows.push({
+      lineNumber: 0,
+      segments: [],
+      changed: false,
+      placeholder: true,
+    });
+    rightRows.push({
+      lineNumber: block.rightStart + index + 1,
+      segments: [{ text: line, changed: true }],
+      changed: true,
+      placeholder: false,
+    });
+  });
+
+  return {
+    leftRows,
+    rightRows,
+  };
+}
+
+function bindDiffBlockScrollSync(leftBody, rightBody) {
+  if (!(leftBody instanceof HTMLElement) || !(rightBody instanceof HTMLElement)) {
+    return;
+  }
+
+  let syncing = false;
+  const sync = (source, target) => {
+    if (syncing) {
+      return;
+    }
+
+    const sourceRange = source.scrollHeight - source.clientHeight;
+    const targetRange = target.scrollHeight - target.clientHeight;
+    if (sourceRange <= 0 || targetRange <= 0) {
+      return;
+    }
+
+    syncing = true;
+    target.scrollTop = Math.round((source.scrollTop / sourceRange) * targetRange);
+    syncing = false;
+  };
+
+  leftBody.addEventListener("scroll", () => {
+    sync(leftBody, rightBody);
+  }, { passive: true });
+  rightBody.addEventListener("scroll", () => {
+    sync(rightBody, leftBody);
+  }, { passive: true });
+}
+
+function renderDiffBlocks(blocks) {
+  if (!hasDiffchecker()) {
+    return;
+  }
+
+  elements.diffResultList.innerHTML = "";
+
+  if (blocks.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "history-empty";
+    empty.textContent = "No differences to show yet.";
+    elements.diffResultList.append(empty);
+    return;
+  }
+
+  const options = state.diff.lastOptions || { ignoreWhitespace: false, ignoreCase: false };
+
+  blocks.forEach((block, index) => {
+    const article = document.createElement("article");
+    article.className = `diff-block is-${block.kind}`;
+
+    const head = document.createElement("div");
+    head.className = "diff-block-head";
+
+    const title = document.createElement("h3");
+    title.className = "diff-block-title";
+    title.textContent = getDiffBlockTitle(block.kind, index);
+
+    const meta = document.createElement("p");
+    meta.className = "diff-block-meta";
+    meta.textContent =
+      `Left lines ${formatDiffRange(block.leftStart, block.leftEnd)} - ` +
+      `Right lines ${formatDiffRange(block.rightStart, block.rightEnd)}`;
+
+    head.append(title, meta);
+
+    const grid = document.createElement("div");
+    grid.className = "diff-block-grid";
+    const rows = buildDiffRowsForBlock(block, options);
+
+    const leftSide = createDiffSide(
+      `Left (${state.diff.leftLabel})`,
+      rows.leftRows,
+      "No lines on the left side",
+    );
+    const rightSide = createDiffSide(
+      `Right (${state.diff.rightLabel})`,
+      rows.rightRows,
+      "No lines on the right side",
+    );
+
+    bindDiffBlockScrollSync(leftSide.body, rightSide.body);
+    grid.append(leftSide.side, rightSide.side);
+
+    const actions = document.createElement("div");
+    actions.className = "diff-merge-actions";
+
+    const leftToRightButton = document.createElement("button");
+    leftToRightButton.type = "button";
+    leftToRightButton.className = "diff-merge-button";
+    leftToRightButton.dataset.diffMerge = "left-to-right";
+    leftToRightButton.dataset.diffBlockIndex = String(index);
+    leftToRightButton.textContent = "Copy left block to right";
+
+    const rightToLeftButton = document.createElement("button");
+    rightToLeftButton.type = "button";
+    rightToLeftButton.className = "diff-merge-button";
+    rightToLeftButton.dataset.diffMerge = "right-to-left";
+    rightToLeftButton.dataset.diffBlockIndex = String(index);
+    rightToLeftButton.textContent = "Copy right block to left";
+
+    actions.append(leftToRightButton, rightToLeftButton);
+    article.append(head, grid, actions);
+    elements.diffResultList.append(article);
+  });
+}
+
+function runDiffComparison(options = {}) {
+  if (!hasDiffchecker()) {
+    return;
+  }
+
+  if (state.diff.compareTimerId) {
+    window.clearTimeout(state.diff.compareTimerId);
+    state.diff.compareTimerId = 0;
+  }
+
+  const leftText = getDiffSideValue("left");
+  const rightText = getDiffSideValue("right");
+  const compareOptions = getDiffOptions();
+  const optionsSuffix = formatDiffOptionsSummary(compareOptions);
+  state.diff.lastOptions = compareOptions;
+  state.diff.lastComparedLeft = leftText;
+  state.diff.lastComparedRight = rightText;
+  updateDiffSideMeta("left");
+  updateDiffSideMeta("right");
+
+  try {
+    const result = createDiffResult(leftText, rightText, compareOptions);
+    state.diff.blocks = result.blocks;
+    renderDiffBlocks(result.blocks);
+
+    if (result.blocks.length === 0) {
+      const emptyMessage =
+        result.leftLines.length === 0 && result.rightLines.length === 0
+          ? "Add content to both sides to see line-by-line differences."
+          : `No differences found${optionsSuffix}.`;
+      setDiffStatus("No differences", emptyMessage);
+      return;
+    }
+
+    const blockSuffix = result.blocks.length === 1 ? "" : "s";
+    const summary =
+      `Compared ${formatDiffLineCount(result.leftLines.length)} on the left and ` +
+      `${formatDiffLineCount(result.rightLines.length)} on the right${optionsSuffix}. ` +
+      `${result.insertedLines} added, ${result.removedLines} removed, ` +
+      `${result.changedBlocks} modified block${result.changedBlocks === 1 ? "" : "s"}.` +
+      (result.usedGreedyFallback ? " Large-file fast compare mode was used." : "");
+    setDiffStatus(`${result.blocks.length} change block${blockSuffix}`, summary);
+  } catch (error) {
+    state.diff.blocks = [];
+    renderDiffBlocks([]);
+    setDiffStatus(
+      "Comparison failed",
+      error instanceof Error ? error.message : "Could not compare these inputs.",
+    );
+  }
+}
+
+function mergeDiffAll(direction) {
+  if (!hasDiffchecker()) {
+    return;
+  }
+
+  if (direction === "left-to-right") {
+    setDiffSideValue("right", getDiffSideValue("left"));
+    updateDiffSideMeta("right");
+  } else {
+    setDiffSideValue("left", getDiffSideValue("right"));
+    updateDiffSideMeta("left");
+  }
+
+  runDiffComparison();
+}
+
+function mergeDiffBlock(direction, blockIndex) {
+  if (!hasDiffchecker()) {
+    return;
+  }
+
+  if (
+    state.diff.lastComparedLeft !== getDiffSideValue("left") ||
+    state.diff.lastComparedRight !== getDiffSideValue("right")
+  ) {
+    runDiffComparison({ quiet: true });
+    setDiffStatus(
+      "Comparison refreshed",
+      "Text changed since the previous comparison. Compare was refreshed, then merge again.",
+    );
+    return;
+  }
+
+  const block = state.diff.blocks[blockIndex];
+  if (!block) {
+    return;
+  }
+
+  const leftLines = getDiffLinesFromText(getDiffSideValue("left"));
+  const rightLines = getDiffLinesFromText(getDiffSideValue("right"));
+
+  if (direction === "left-to-right") {
+    const nextRight = [
+      ...rightLines.slice(0, block.rightStart),
+      ...block.leftLines,
+      ...rightLines.slice(block.rightEnd),
+    ];
+    setDiffSideValue("right", joinDiffLines(nextRight));
+    updateDiffSideMeta("right");
+  } else {
+    const nextLeft = [
+      ...leftLines.slice(0, block.leftStart),
+      ...block.rightLines,
+      ...leftLines.slice(block.leftEnd),
+    ];
+    setDiffSideValue("left", joinDiffLines(nextLeft));
+    updateDiffSideMeta("left");
+  }
+
+  runDiffComparison();
 }
 
 function renderWorkflowCards() {
@@ -559,10 +1842,10 @@ function renderWorkflowCards() {
     meta.className = "workflow-card-meta";
 
     const count = document.createElement("span");
-    count.textContent = preset.multiple ? "One or many files" : "One file";
+    count.textContent = preset.multiple ? "1+ files" : "1 file";
 
     const engine = document.createElement("span");
-    engine.textContent = "Easy start";
+    engine.textContent = "Simple";
 
     meta.append(count, engine);
     button.append(header, description, meta);
@@ -600,10 +1883,22 @@ function getPresetOutputLabel(preset) {
 
 function getPresetRequirementText(preset) {
   if (preset.minimumFiles <= 1) {
-    return preset.multiple ? "Add one or more files." : "Add one file.";
+    return preset.multiple ? "Step 2: add one or more files." : "Step 2: add one file.";
   }
 
-  return `Add at least ${preset.minimumFiles} files.`;
+  return `Step 2: add at least ${preset.minimumFiles} files.`;
+}
+
+function setCoachMessage(message) {
+  if (!elements.coachText) {
+    return;
+  }
+
+  elements.coachText.textContent = message;
+}
+
+function getCoachDefaultMessage() {
+  return "Start at Step 1: pick what you want to make.";
 }
 
 function renderSelectionSummary() {
@@ -611,22 +1906,22 @@ function renderSelectionSummary() {
 
   if (state.files.length === 0) {
     elements.selectionSummary.textContent =
-      `${getPresetRequirementText(preset)} The result will be a ${getPresetOutputLabel(preset)} file.`;
+      `${getPresetRequirementText(preset)} We will make a ${getPresetOutputLabel(preset)} file.`;
     return;
   }
 
   const totalBytes = state.files.reduce((sum, file) => sum + file.size, 0);
-  const suffix = state.files.length === 1 ? "file is" : "files are";
+  const suffix = state.files.length === 1 ? "file" : "files";
   let summary =
-    `${state.files.length} ${suffix} selected (${formatBytes(totalBytes)} total). ` +
-    `The result will be a ${getPresetOutputLabel(preset)} file.`;
+    `${state.files.length} ${suffix} added (${formatBytes(totalBytes)} total). ` +
+    `Output: ${getPresetOutputLabel(preset)}.`;
 
   if (state.videoInfo) {
-    summary += ` Video size: ${state.videoInfo.width}x${state.videoInfo.height}. Length: ${formatDuration(state.videoInfo.duration)}.`;
+    summary += ` Video: ${state.videoInfo.width}x${state.videoInfo.height}, ${formatDuration(state.videoInfo.duration)}.`;
   }
 
   if (state.files.length < preset.minimumFiles) {
-    summary += ` Add ${preset.minimumFiles - state.files.length} more to continue.`;
+    summary += ` Add ${preset.minimumFiles - state.files.length} more file${preset.minimumFiles - state.files.length === 1 ? "" : "s"} to continue.`;
   }
 
   elements.selectionSummary.textContent = summary;
@@ -691,6 +1986,7 @@ async function setSelectedFiles(files, options = {}) {
       setStatus(
         `We switched to ${presets[matchingPresetKeys[0]].label} because it matches your file. Ready when you are.`,
       );
+      setCoachMessage("Nice! The app picked the best match. Now tap the blue button in Step 3.");
       return;
     }
 
@@ -703,6 +1999,7 @@ async function setSelectedFiles(files, options = {}) {
       renderVideoWarning();
       renderSmartMatch(files, matchingPresetKeys);
       setStatus("Choose the result you want for these files.");
+      setCoachMessage("Step 1: choose one option above, then we continue.");
       setProgress(0);
       syncControlAvailability();
       return;
@@ -718,12 +2015,14 @@ async function setSelectedFiles(files, options = {}) {
   if (validFiles.length === 0) {
     if (skippedCount > 0) {
       setStatus("These files do not match the option you picked.", true);
+      setCoachMessage("Try another file type, or change Step 1 to match your file.");
       renderVideoWarning();
       syncControlAvailability();
       return;
     }
 
     setStatus("Pick or drop files to begin.");
+    setCoachMessage("Step 2: add your file in the middle section.");
     setProgress(0);
     renderVideoWarning();
     syncControlAvailability();
@@ -747,6 +2046,7 @@ async function setSelectedFiles(files, options = {}) {
     setStatus(
       `Add ${remaining} more file${remaining === 1 ? "" : "s"} to continue.`,
     );
+    setCoachMessage(`Add ${remaining} more file${remaining === 1 ? "" : "s"}, then tap the blue button.`);
     setProgress(0);
     syncControlAvailability();
     return;
@@ -756,12 +2056,14 @@ async function setSelectedFiles(files, options = {}) {
     setStatus(
       `${skippedCount} file${skippedCount === 1 ? "" : "s"} did not match, but the rest are ready.`,
     );
+    setCoachMessage("Some files were skipped. The good files are ready. Tap the blue button.");
     setProgress(0);
     syncControlAvailability();
     return;
   }
 
   setStatus("Ready. Press the button below to start.");
+  setCoachMessage("Perfect. Step 3: tap the blue button to start conversion.");
   setProgress(0);
   syncControlAvailability();
 }
@@ -775,6 +2077,11 @@ function clearSelectedFiles() {
   renderSelectionSummary();
   clearDownloads();
   setStatus(isWorkspaceLocked() ? "Unlock the workspace to continue." : "Pick or drop files to begin.");
+  setCoachMessage(
+    isWorkspaceLocked()
+      ? "Unlock the workspace first, then start from Step 1."
+      : getCoachDefaultMessage(),
+  );
   setProgress(0);
   renderVideoWarning();
   syncControlAvailability();
@@ -1635,16 +2942,19 @@ async function runConversion() {
 
   if (isRecorderBusy()) {
     setStatus("Finish the current recording before starting a conversion.", true);
+    setCoachMessage("Recorder is busy now. Stop recording first, then convert.");
     return;
   }
 
   if (isWorkspaceLocked()) {
     setStatus("Unlock the workspace before starting a new conversion.", true);
+    setCoachMessage("Unlock first, then continue with Step 1.");
     return;
   }
 
   if (state.files.length < preset.minimumFiles) {
     setStatus(getPresetRequirementText(preset), true);
+    setCoachMessage(getPresetRequirementText(preset));
     return;
   }
 
@@ -1661,6 +2971,7 @@ async function runConversion() {
 
   clearDownloads();
   setProgress(2);
+  setCoachMessage("Working on your file now. Please wait a moment.");
   syncControlAvailability();
 
   try {
@@ -1712,12 +3023,14 @@ async function runConversion() {
   } catch (error) {
     if (state.cancelRequested || isTerminationError(error)) {
       setStatus("Conversion cancelled.");
+      setCoachMessage("Conversion stopped. You can tap the blue button again anytime.");
       setProgress(0);
       finalizeJob("cancelled", [], "The conversion was cancelled before completion.");
     } else {
       const message =
         error instanceof Error ? error.message : "Conversion failed unexpectedly.";
       setStatus(message, true);
+      setCoachMessage("Something went wrong. Try a smaller file or keep recommended settings.");
       finalizeJob("failed", [], message);
     }
   } finally {
@@ -3197,6 +4510,7 @@ function addDownload({ name, blob, caption }) {
   card.append(copy, link);
   elements.downloads.append(card);
   elements.downloadsEmpty.hidden = true;
+  setCoachMessage("Done! Tap Download to save your file.");
 
   return {
     name,
@@ -3213,6 +4527,10 @@ function clearDownloads() {
   state.downloadUrls = [];
   elements.downloads.innerHTML = "";
   elements.downloadsEmpty.hidden = false;
+
+  if (!state.busy && state.files.length === 0) {
+    setCoachMessage(getCoachDefaultMessage());
+  }
 }
 
 function finalizeJob(status, outputs, note) {
@@ -3903,6 +5221,30 @@ function syncControlAvailability() {
 
   for (const control of optionControls) {
     control.disabled = disabled;
+  }
+
+  const diffControls = [
+    elements.diffIgnoreWhitespaceCheckbox,
+    elements.diffIgnoreCaseCheckbox,
+    elements.diffSwapButton,
+    elements.diffClearBothButton,
+    elements.diffLeftInput,
+    elements.diffRightInput,
+    elements.diffLeftUploadButton,
+    elements.diffRightUploadButton,
+    elements.diffLeftClearButton,
+    elements.diffRightClearButton,
+    elements.runDiffButton,
+    elements.diffMergeLeftToRightAllButton,
+    elements.diffMergeRightToLeftAllButton,
+    elements.diffCopyLeftButton,
+    elements.diffCopyRightButton,
+    elements.diffDownloadLeftButton,
+    elements.diffDownloadRightButton,
+  ].filter(Boolean);
+
+  for (const control of diffControls) {
+    control.disabled = locked;
   }
 
   elements.cancelButton.hidden = !(state.busy && preset.usesFfmpeg);
