@@ -28,6 +28,32 @@ const SPECIAL_PRESET_LABELS = {
   screenRecorder: "Screen Recorder",
   cameraRecorder: "Camera Recorder",
 };
+const SEO_DEFAULT_META = {
+  title: "Free Converter - WebM, PDF, Image, Recorder and Diffchecker Tools",
+  description:
+    "Convert WebM to MP4, images to PDF, merge PDFs, switch JPG/PNG/WebP formats, record your screen, and compare text differences with free browser-based tools.",
+  hash: "#converter-title",
+};
+const SEO_SECTION_META = {
+  diffchecker: {
+    title: "Free Diffchecker - Compare Text and Merge Changes",
+    description:
+      "Compare two text files side by side, review line-by-line differences, and merge edits quickly in your browser.",
+    hash: "#diffchecker-title",
+  },
+  recorder: {
+    title: "Free Screen Recorder - Record Screen or Camera in Browser",
+    description:
+      "Record your screen or camera, then save locally as WebM or MP4 with quality and frame-rate controls.",
+    hash: "#recorder-title",
+  },
+  extras: {
+    title: "Free Converter Tools - Privacy, Activity, and Device Checks",
+    description:
+      "Review conversion history, run browser diagnostics, and use private workspace options in Free Converter.",
+    hash: "#extras-title",
+  },
+};
 
 const presets = {
   webmToMp4: {
@@ -308,6 +334,14 @@ const elements = {
   diffRightMeta: document.querySelector("#diffRightMeta"),
   diffLeftTitle: document.querySelector("#diffLeftTitle"),
   diffRightTitle: document.querySelector("#diffRightTitle"),
+  metaDescription: document.querySelector("#metaDescription"),
+  ogTitle: document.querySelector("#ogTitle"),
+  ogDescription: document.querySelector("#ogDescription"),
+  ogUrl: document.querySelector("#ogUrl"),
+  twitterTitle: document.querySelector("#twitterTitle"),
+  twitterDescription: document.querySelector("#twitterDescription"),
+  twitterUrl: document.querySelector("#twitterUrl"),
+  canonicalLink: document.querySelector("#canonicalLink"),
 };
 
 let recordingLibraryDbPromise = null;
@@ -339,6 +373,7 @@ async function boot() {
   renderRecorderTimer();
   initializeDiffchecker();
   handleInitialDeepLink();
+  syncSeoWithCurrentView();
   await restoreRecordingLibrary();
   await registerServiceWorker();
   scheduleFfmpegWarmup();
@@ -534,14 +569,20 @@ function bindEvents() {
     event.preventDefault();
     revealRecorderPanel({ focusStartButton: true });
   });
+  window.addEventListener("hashchange", () => {
+    handleHashNavigationFromLocation();
+    syncSeoWithCurrentView();
+  });
 
   if (hasDiffchecker()) {
     elements.openDiffcheckerLink?.addEventListener("click", (event) => {
       event.preventDefault();
+      setSectionHash("#diffchecker-title");
       document.querySelector("#diffchecker-title")?.scrollIntoView({
         behavior: "smooth",
         block: "start",
       });
+      applySeoMeta(SEO_SECTION_META.diffchecker);
       window.setTimeout(() => {
         elements.diffLeftInput?.focus();
       }, 220);
@@ -629,9 +670,15 @@ function bindEvents() {
 function revealRecorderPanel(options = {}) {
   const smooth = options.smooth !== false;
   const focusStartButton = options.focusStartButton === true;
+  const updateHash = options.updateHash !== false;
 
   if (elements.recorderDetails) {
     elements.recorderDetails.open = true;
+  }
+
+  if (updateHash) {
+    setSectionHash("#recorder-title");
+    applySeoMeta(SEO_SECTION_META.recorder);
   }
 
   document.querySelector("#recorder-title")?.scrollIntoView({
@@ -647,9 +694,13 @@ function revealRecorderPanel(options = {}) {
 }
 
 function handleInitialDeepLink() {
+  handleHashNavigationFromLocation();
+}
+
+function handleHashNavigationFromLocation() {
   const hash = String(window.location.hash || "").toLowerCase();
-  if (hash === "#recorder-title" || hash === "#recorderdetails") {
-    revealRecorderPanel({ smooth: false, focusStartButton: false });
+  if (hash.includes("recorder") || hash.includes("recording")) {
+    revealRecorderPanel({ smooth: false, focusStartButton: false, updateHash: false });
   }
 }
 
@@ -687,6 +738,104 @@ function setActivePreset(presetKey) {
   setCoachMessage(`Great. Step 2: add your ${preset.minimumFiles > 1 ? "files" : "file"} in the middle section.`);
   syncControlAvailability();
   scheduleFfmpegWarmup();
+  if (getSeoSectionFromHash() === "converter") {
+    applySeoForPreset(presetKey);
+  }
+}
+
+function setSectionHash(hash) {
+  if (!hash || window.location.hash === hash) {
+    return;
+  }
+
+  history.replaceState(null, "", hash);
+}
+
+function getSeoBaseUrl() {
+  if (window.location.origin === "null") {
+    return window.location.pathname || "/";
+  }
+
+  return `${window.location.origin}${window.location.pathname}`;
+}
+
+function setMetaContent(element, value) {
+  if (!element || typeof value !== "string" || value.length === 0) {
+    return;
+  }
+
+  element.setAttribute("content", value);
+}
+
+function applySeoMeta(meta) {
+  const title = meta?.title || SEO_DEFAULT_META.title;
+  const description = meta?.description || SEO_DEFAULT_META.description;
+  const hash = typeof meta?.hash === "string" ? meta.hash : SEO_DEFAULT_META.hash;
+  const baseUrl = getSeoBaseUrl();
+  const url = `${baseUrl}${hash}`;
+
+  document.title = title;
+  setMetaContent(elements.metaDescription, description);
+  setMetaContent(elements.ogTitle, title);
+  setMetaContent(elements.ogDescription, description);
+  setMetaContent(elements.ogUrl, url);
+  setMetaContent(elements.twitterTitle, title);
+  setMetaContent(elements.twitterDescription, description);
+  setMetaContent(elements.twitterUrl, url);
+  if (elements.canonicalLink) {
+    elements.canonicalLink.setAttribute("href", baseUrl);
+  }
+}
+
+function applySeoForPreset(presetKey) {
+  const preset = presets[presetKey];
+  if (!preset) {
+    applySeoMeta(SEO_DEFAULT_META);
+    return;
+  }
+
+  applySeoMeta({
+    title: `${preset.label} Converter - Free Converter`,
+    description: `${preset.description} Convert files locally in your browser with no upload and no signup.`,
+    hash: "#converter-title",
+  });
+}
+
+function getSeoSectionFromHash() {
+  const hash = String(window.location.hash || "").toLowerCase();
+  if (!hash || hash === "#" || hash === SEO_DEFAULT_META.hash) {
+    return "converter";
+  }
+
+  if (hash.includes("diff")) {
+    return "diffchecker";
+  }
+
+  if (hash.includes("recorder") || hash.includes("recording")) {
+    return "recorder";
+  }
+
+  if (
+    hash.includes("extras") ||
+    hash.includes("history") ||
+    hash.includes("diagnostics") ||
+    hash.includes("profile") ||
+    hash.includes("faq")
+  ) {
+    return "extras";
+  }
+
+  return "converter";
+}
+
+function syncSeoWithCurrentView() {
+  const section = getSeoSectionFromHash();
+  if (section === "converter") {
+    applySeoForPreset(state.presetKey);
+    return;
+  }
+
+  applySeoMeta(SEO_SECTION_META[section]);
 }
 
 function resetOptionInputs() {

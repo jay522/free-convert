@@ -3,12 +3,107 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>free-converter</title>
+    <title>Free Converter - WebM, PDF, Image, Recorder and Diffchecker Tools</title>
     <meta
+      id="metaDescription"
       name="description"
-      content="Serverless-friendly media converter with browser-side video, image, and PDF workflows."
+      content="Convert WebM to MP4, images to PDF, merge PDFs, switch JPG/PNG/WebP formats, record your screen, and compare text differences. Free browser-based tools with no upload."
     />
+    <meta
+      name="keywords"
+      content="free converter, webm to mp4, image to pdf, merge pdf, jpg to png, png to jpg, webp converter, screen recorder, diffchecker"
+    />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="googlebot" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="application-name" content="Free Converter" />
+    <meta name="apple-mobile-web-app-title" content="Free Converter" />
+    <link id="canonicalLink" rel="canonical" href="/" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Free Converter" />
+    <meta
+      id="ogTitle"
+      property="og:title"
+      content="Free Converter - WebM, PDF, Image, Recorder and Diffchecker Tools"
+    />
+    <meta
+      id="ogDescription"
+      property="og:description"
+      content="Convert files locally in your browser with no upload. WebM to MP4, image and PDF tools, screen recorder, and text diffchecker."
+    />
+    <meta id="ogUrl" property="og:url" content="/" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta id="twitterTitle" name="twitter:title" content="Free Converter - WebM, PDF, Image, Recorder and Diffchecker Tools" />
+    <meta
+      id="twitterDescription"
+      name="twitter:description"
+      content="Free browser-based converter and utility suite for video, image, PDF, recording, and text compare workflows."
+    />
+    <meta id="twitterUrl" name="twitter:url" content="/" />
     <meta name="theme-color" content="#0f77ff" />
+    <script id="seoStructuredData" type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "name": "Free Converter",
+            "url": "/",
+            "description": "Free browser-based converter for video, image, PDF, and text workflows."
+          },
+          {
+            "@type": "SoftwareApplication",
+            "name": "Free Converter",
+            "applicationCategory": "MultimediaApplication",
+            "operatingSystem": "Web Browser",
+            "url": "/",
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD"
+            },
+            "featureList": [
+              "WebM to MP4 conversion",
+              "Images to PDF conversion",
+              "Merge PDF files",
+              "JPG PNG WebP image conversion",
+              "Screen and camera recording",
+              "Text diffchecker and merge"
+            ]
+          },
+          {
+            "@type": "FAQPage",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "Do files get uploaded to a server?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "No. Conversions and recording tasks run locally in your browser on this device."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Which formats can I convert?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "You can convert WebM to MP4, images to PDF, merge PDF files, and switch JPG PNG WebP image formats."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Is the tool free to use?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. The app is free to use and does not require an account."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    </script>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -29,19 +124,22 @@
             </span>
           </a>
 
-          <div class="topbar-tools">
+          <nav class="topbar-tools" aria-label="Primary tools">
             <a class="topbar-tool-link" id="openScreenRecorderLink" href="#recorder-title">
               Screen Recorder
             </a>
             <a class="topbar-tool-link" id="openDiffcheckerLink" href="#diffchecker-title">
               Diffchecker
             </a>
+            <a class="topbar-tool-link" href="#extras-title">
+              Extra Tools
+            </a>
             <div class="topbar-badges" aria-label="Platform highlights">
               <span>No upload</span>
               <span>Works on your device</span>
               <span>Easy file tools</span>
             </div>
-          </div>
+          </nav>
         </div>
 
         <section class="hero">
@@ -112,7 +210,7 @@
       </header>
 
       <main class="layout">
-        <section class="panel converter-panel" aria-labelledby="converter-title">
+        <section class="panel converter-panel" id="converter-section" aria-labelledby="converter-title">
           <div class="panel-head">
             <div>
               <p class="panel-kicker">Converter</p>
@@ -120,6 +218,9 @@
             </div>
             <span class="format-badge" id="formatBadge">WebM to MP4</span>
           </div>
+          <p class="helper-text">
+            Convert WebM, PDF, JPG, PNG, and WebP files directly in your browser with no upload required.
+          </p>
 
           <div class="converter-workspace">
             <section class="converter-step converter-step-workflow" aria-labelledby="step-workflow-title">
@@ -310,7 +411,7 @@
           </div>
         </section>
 
-        <section class="panel diff-panel" aria-labelledby="diffchecker-title">
+        <section class="panel diff-panel" id="diffchecker-section" aria-labelledby="diffchecker-title">
           <div class="panel-head">
             <div>
               <p class="panel-kicker">Diffchecker</p>
@@ -426,7 +527,7 @@
           </div>
         </section>
 
-        <section class="panel extras-panel" aria-labelledby="extras-title">
+        <section class="panel extras-panel" id="extras-section" aria-labelledby="extras-title">
           <div class="panel-head">
             <div>
               <p class="panel-kicker">Optional tools</p>
@@ -789,6 +890,35 @@
               </div>
             </div>
           </details>
+        </section>
+
+        <section class="panel" id="faq-section" aria-labelledby="faq-title">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Help</p>
+              <h2 id="faq-title">Frequently asked questions</h2>
+            </div>
+          </div>
+          <div class="simple-details-body">
+            <article class="detail-card">
+              <h3>Are my files uploaded?</h3>
+              <p class="helper-text">
+                No. Free Converter runs on-device in your browser, so your files stay local while converting or recording.
+              </p>
+            </article>
+            <article class="detail-card">
+              <h3>Which conversion sections are available?</h3>
+              <p class="helper-text">
+                You can use WebM to MP4, images to PDF, PDF merge, PNG or WebP to JPG, JPG or WebP to PNG, and JPG or PNG to WebP sections.
+              </p>
+            </article>
+            <article class="detail-card">
+              <h3>Can I use this on mobile?</h3>
+              <p class="helper-text">
+                Yes. The interface is responsive for desktop and mobile browsers, with the same local conversion workflow.
+              </p>
+            </article>
+          </div>
         </section>
       </main>
     </div>
